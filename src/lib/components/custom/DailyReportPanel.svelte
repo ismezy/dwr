@@ -1,21 +1,36 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { projectsStore } from '$lib/stores/projects.svelte';
 	import { configStore } from '$lib/stores/config.svelte';
 	import { reportsStore } from '$lib/stores/reports.svelte';
 	import { i18n } from '$lib/i18n';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import { CalendarDays, FileText, Sparkles } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
+
+	let showAiAlert = $state(false);
 
 	function getTodayStr() {
 		const d = new Date();
 		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 	}
 
+	function isAiConfigured(): boolean {
+		const cfg = configStore.configs;
+		return !!cfg.ai_provider && !!cfg.ai_api_key;
+	}
+
 	async function handleGenerate() {
 		const project = projectsStore.selected;
 		if (!project) return;
+
+		if (!isAiConfigured()) {
+			showAiAlert = true;
+			return;
+		}
+
 		const gitUser = projectsStore.resolveGitUserName(project);
 		await reportsStore.generateReport(
 			project.path,
@@ -24,6 +39,11 @@
 			getTodayStr(),
 			configStore.configs.work_dir
 		);
+	}
+
+	function goToSettings() {
+		showAiAlert = false;
+		goto('/settings');
 	}
 
 	async function handleSelect(date: string) {
@@ -100,3 +120,22 @@
 		</div>
 	{/if}
 </div>
+
+<AlertDialog.Root bind:open={showAiAlert}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>{i18n.t('dailyReport.aiConfigTitle')}</AlertDialog.Title>
+			<AlertDialog.Description>
+				{i18n.t('dailyReport.aiNotConfigured')}
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel onclick={() => (showAiAlert = false)}>
+				{i18n.t('common.cancel')}
+			</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={goToSettings}>
+				{i18n.t('settings.title')}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

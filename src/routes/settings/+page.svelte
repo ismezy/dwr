@@ -7,8 +7,9 @@
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { configStore, type Theme } from '$lib/stores/config.svelte';
+	import { toastStore } from '$lib/stores/toast.svelte';
 	import { i18n, type Locale } from '$lib/i18n';
-	import { Folder, Settings, ArrowLeft } from '@lucide/svelte';
+	import { Folder, Settings, ArrowLeft, RefreshCw } from '@lucide/svelte';
 
 	let workDir = $state('');
 	let gitUserName = $state('');
@@ -18,6 +19,8 @@
 	let aiApiKey = $state('');
 	let aiBaseUrl = $state('');
 	let aiModel = $state('');
+	let fetchedModels = $state<{ id: string; label: string }[]>([]);
+	let fetchingModels = $state(false);
 
 	async function init() {
 		await configStore.refresh();
@@ -54,6 +57,7 @@
 			ai_base_url: aiProvider === 'custom' ? aiBaseUrl.trim() || undefined : undefined,
 			ai_model: aiModel.trim() || undefined,
 		});
+		toastStore.show(i18n.t('settings.saveSuccess'));
 	}
 
 	const langItems = $derived([
@@ -79,6 +83,73 @@
 	const selectedLangLabel = $derived(langItems.find((i) => i.value === lang)?.label ?? '');
 	const selectedThemeLabel = $derived(themeItems.find((i) => i.value === theme)?.label ?? '');
 	const selectedProviderLabel = $derived(providerItems.find((i) => i.value === aiProvider)?.label ?? '');
+
+	const staticModelMap: Record<string, { id: string; label: string }[]> = {
+		anthropic: [
+			{ id: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet' },
+			{ id: 'claude-3-opus-latest', label: 'Claude 3 Opus' },
+			{ id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku' },
+		],
+		gemini: [
+			{ id: 'gemini-1.5-pro-latest', label: 'Gemini 1.5 Pro' },
+			{ id: 'gemini-1.5-flash-latest', label: 'Gemini 1.5 Flash' },
+			{ id: 'gemini-1.0-pro', label: 'Gemini 1.0 Pro' },
+		],
+	};
+
+	const providerBaseUrls: Record<string, string> = {
+		openai: 'https://api.openai.com/v1',
+		deepseek: 'https://api.deepseek.com/v1',
+	};
+
+	const canFetchModels = $derived(
+		aiProvider === 'openai' || aiProvider === 'deepseek' || aiProvider === 'custom'
+	);
+
+	const modelItems = $derived(
+		fetchedModels.length > 0
+			? fetchedModels
+			: (staticModelMap[aiProvider] ?? [])
+	);
+
+	const selectedModelLabel = $derived(modelItems.find((i) => i.id === aiModel)?.label ?? '');
+
+	async function fetchModels() {
+		if (!aiApiKey.trim()) return;
+		let baseUrl = providerBaseUrls[aiProvider];
+		if (aiProvider === 'custom') {
+			baseUrl = aiBaseUrl.trim();
+		}
+		if (!baseUrl) return;
+
+		fetchingModels = true;
+		try {
+			const res = await fetch(`${baseUrl}/models`, {
+				headers: {
+					Authorization: `Bearer ${aiApiKey.trim()}`,
+				},
+			});
+			if (!res.ok) {
+				console.error('failed to fetch models:', res.status, await res.text());
+				return;
+			}
+			const data = await res.json();
+			const list: { id: string; label: string }[] = (data.data ?? [])
+				.filter((m: any) => m.id && typeof m.id === 'string')
+				.map((m: any) => ({ id: m.id, label: m.id }));
+			fetchedModels = list;
+		} catch (e) {
+			console.error('failed to fetch models:', e);
+		} finally {
+			fetchingModels = false;
+		}
+	}
+
+	function handleProviderChange(newProvider: string) {
+		aiProvider = newProvider;
+		fetchedModels = [];
+		aiModel = '';
+	}
 </script>
 
 <div class="flex flex-col h-screen w-full overflow-hidden bg-background">
@@ -170,7 +241,7 @@
 				<Card.Content class="space-y-5">
 					<div class="grid gap-2">
 						<Label>{i18n.t('config.ai.provider')}</Label>
-						<Select.Root type="single" bind:value={aiProvider}>
+						<Select.Root type="single" value={aiProvider} onValueChange={handleProviderChange}>
 							<Select.Trigger class="w-full">
 								{selectedProviderLabel}
 							</Select.Trigger>
@@ -207,12 +278,41 @@
 						{/if}
 
 						<div class="grid gap-2">
-							<Label for="ai-model">{i18n.t('config.ai.model')}</Label>
-							<Input
-								id="ai-model"
-								bind:value={aiModel}
-								placeholder={i18n.t('common.optional')}
-							/>
+							<div class="flex items-center justify-between">
+								<Label for="ai-model">{i18n.t('config.ai.model')}</Label>
+								{#if canFetchModels}
+									<Button
+										variant="ghost"
+										size="sm"
+										class="h-6 px-2 text-xs"
+										onclick={fetchModels}
+										disabled={fetchingModels || !aiApiKey.trim()}
+									>
+										<RefreshCw class="h-3 w-3 mr-1" />
+										{fetchingModels ? i18n.t('config.ai.fetching') : i18n.t('config.ai.fetchModels')}
+									</Button>
+								{/if}
+							</div>
+							{#if aiProvider === 'custom'}
+								<Input
+									id="ai-model"
+									bind:value={aiModel}
+									placeholder={i18n.t('common.optional')}
+								/>
+							{:else}
+								<Select.Root type="single" bind:value={aiModel}>
+									<Select.Trigger class="w-full">
+										{selectedModelLabel || i18n.t('common.optional')}
+									</Select.Trigger>
+									<Select.Content>
+										{#each modelItems as item (item.id)}
+											<Select.Item value={item.id} label={item.label}>
+												{item.label}
+											</Select.Item>
+										{/each}
+									</Select.Content>
+								</Select.Root>
+							{/if}
 						</div>
 					{/if}
 				</Card.Content>
