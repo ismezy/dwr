@@ -9,6 +9,7 @@ DWR（Daily Work Report）是一款桌面端工具软件，帮助程序员根据
 - **桌面框架**: [Tauri v2](https://v2.tauri.app/) — Rust 后端 + Web 前端
 - **前端框架**: [SvelteKit](https://svelte.dev/) + [Svelte 5 (Runes)](https://svelte.dev/docs/svelte/what-are-runes)
 - **样式系统**: [Tailwind CSS v4](https://tailwindcss.com/) + [shadcn-svelte](https://shadcn-svelte.com/)
+- **国际化**: 自定义轻量级 i18n（基于 Svelte 5 Runes，`src/lib/i18n/`）
 - **构建工具**: Vite 6
 - **包管理器**: Yarn
 - **语言**: TypeScript（前端）+ Rust（后端）
@@ -25,6 +26,10 @@ dwr/
 │   ├── lib/                # 库代码
 │   │   ├── components/     # 组件目录（含 shadcn/ui）
 │   │   │   └── ui/         # shadcn 组件存放位置
+│   │   ├── i18n/           # 国际化
+│   │   │   ├── zh.json     # 中文语言包
+│   │   │   ├── en.json     # 英文语言包
+│   │   │   └── index.svelte.ts  # i18n 核心逻辑
 │   │   ├── hooks/          # 自定义 hooks
 │   │   └── utils.ts        # 工具函数（cn 等）
 │   └── app.html            # HTML 模板
@@ -97,6 +102,45 @@ fn get_commits(repo_path: &str, since: &str, until: &str) -> Result<Vec<Commit>,
 import { invoke } from "@tauri-apps/api/core";
 const commits = await invoke<Commit[]>("get_commits", { repo_path: path, since, until });
 ```
+
+## 国际化（i18n）规范
+
+项目使用自定义轻量级 i18n 方案（`src/lib/i18n/index.svelte.ts`），基于 Svelte 5 Runes 实现响应式语言切换。当前支持 **中文（zh）** 和 **英文（en）**。
+
+### 使用方式
+
+```svelte
+<script lang="ts">
+  import { i18n } from '$lib/i18n';
+</script>
+
+<span>{i18n.t('project.title')}</span>
+<button>{i18n.t('common.save')}</button>
+```
+
+### 开发要求
+
+- **禁止硬编码文本**：所有用户可见的界面文本（按钮、标签、提示、空状态、错误信息等）**必须**通过 `i18n.t('key')` 获取，禁止直接写死中文或英文。
+- **同步更新双语**：新增或修改文案时，必须同时在 `src/lib/i18n/zh.json` 和 `src/lib/i18n/en.json` 中添加对应的键值对。
+- **键名命名规范**：采用 `模块.子模块.键名` 的层级结构，使用 camelCase：
+  - `app.name`、`app.subtitle` — 应用级文本
+  - `project.title`、`project.add`、`project.emptyHint` — 项目模块
+  - `dailyReport.title`、`dailyReport.emptyHint` — 日报模块
+  - `content.title`、`content.placeholder` — 内容展示模块
+  - `config.title`、`config.workDir`、`config.language` — 配置模块
+  - `common.save`、`common.cancel`、`common.required` — 通用操作
+- **类型安全**：`t()` 函数的 `key` 参数类型为 `keyof Messages`，TS 会自动提示可用的 key，不要绕过类型检查传动态字符串（除非确有必要）。
+- **fallback 处理**：如需提供默认值，使用 `i18n.t('key', '默认文本')`。
+
+### 语言切换
+
+```typescript
+import { i18n } from '$lib/i18n';
+i18n.setLocale('en');  // 切换为英文
+i18n.setLocale('zh');  // 切换为中文
+```
+
+语言偏好由 `configStore` 持久化保存，应用启动时自动恢复。
 
 ## 核心功能规范
 
