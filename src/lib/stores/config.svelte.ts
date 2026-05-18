@@ -2,12 +2,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { i18n, type Locale } from '$lib/i18n';
 
 export type Theme = 'light' | 'dark' | 'system';
+export type AiProvider = 'openai' | 'anthropic' | 'gemini' | 'custom' | '';
 
 export interface ConfigData {
 	work_dir?: string;
 	git_user_name?: string;
 	lang?: Locale;
 	theme?: Theme;
+	ai_provider?: string;
+	ai_api_key?: string;
+	ai_base_url?: string;
+	ai_model?: string;
 }
 
 async function loadConfigs(): Promise<ConfigData> {
@@ -28,7 +33,6 @@ function applyTheme(theme?: Theme) {
 	} else if (t === 'light') {
 		root.classList.remove('dark');
 	} else {
-		// system
 		if (media.matches) {
 			root.classList.add('dark');
 		} else {

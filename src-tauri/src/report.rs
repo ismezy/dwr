@@ -156,6 +156,7 @@ pub fn get_report_list(
 ) -> Result<Vec<ReportMeta>, String> {
     let dir = report_dir(&project_path, &project_name, work_dir.as_deref());
     if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create report dir: {}", e))?;
         return Ok(Vec::new());
     }
 

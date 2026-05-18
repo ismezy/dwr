@@ -2,9 +2,11 @@
 	import ProjectPanel from '$lib/components/custom/ProjectPanel.svelte';
 	import DailyReportPanel from '$lib/components/custom/DailyReportPanel.svelte';
 	import ContentPanel from '$lib/components/custom/ContentPanel.svelte';
-	import ConfigDialog from '$lib/components/custom/ConfigDialog.svelte';
 	import * as Resizable from '$lib/components/ui/resizable/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { i18n } from '$lib/i18n';
+	import { Settings } from '@lucide/svelte';
+	import { goto } from '$app/navigation';
 </script>
 
 <div class="flex flex-col h-screen w-full overflow-hidden">
@@ -14,7 +16,15 @@
 			<span class="text-sm font-semibold">{i18n.t('app.name')}</span>
 			<span class="text-xs text-muted-foreground">{i18n.t('app.subtitle')}</span>
 		</div>
-		<ConfigDialog />
+		<Button
+			variant="ghost"
+			size="icon"
+			class="h-8 w-8"
+			onclick={() => goto('/settings')}
+			title={i18n.t('settings.title')}
+		>
+			<Settings class="h-4 w-4" />
+		</Button>
 	</div>
 
 	<!-- Layout: fixed left sidebar + resizable right two columns -->

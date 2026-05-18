@@ -14,6 +14,14 @@ pub struct ConfigData {
     pub lang: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_model: Option<String>,
 }
 
 pub struct ConfigDb {
@@ -71,6 +79,22 @@ fn set_config_value(state: &ConfigDb, key: &str, value: &str) -> Result<(), Stri
     Ok(())
 }
 
+fn del_config_value(state: &ConfigDb, key: &str) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM config WHERE key = ?1", params![key])
+        .map_err(|e| format!("failed to delete config: {}", e))?;
+    Ok(())
+}
+
+fn opt_set(state: &ConfigDb, key: &str, value: &Option<String>) -> Result<(), String> {
+    if let Some(ref v) = value {
+        set_config_value(state, key, v)?;
+    } else {
+        del_config_value(state, key)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_configs(state: tauri::State<'_, ConfigDb>) -> Result<ConfigData, String> {
     let map = get_config_map(&state)?;
@@ -79,6 +103,10 @@ pub fn get_configs(state: tauri::State<'_, ConfigDb>) -> Result<ConfigData, Stri
         git_user_name: map.get("git_user_name").cloned(),
         lang: map.get("lang").cloned(),
         theme: map.get("theme").cloned(),
+        ai_provider: map.get("ai_provider").cloned(),
+        ai_api_key: map.get("ai_api_key").cloned(),
+        ai_base_url: map.get("ai_base_url").cloned(),
+        ai_model: map.get("ai_model").cloned(),
     })
 }
 
@@ -87,33 +115,13 @@ pub fn save_configs(
     state: tauri::State<'_, ConfigDb>,
     data: ConfigData,
 ) -> Result<(), String> {
-    if let Some(ref v) = data.work_dir {
-        set_config_value(&state, "work_dir", v)?;
-    } else {
-        let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM config WHERE key = ?1", params!["work_dir"])
-            .map_err(|e| format!("failed to delete config: {}", e))?;
-    }
-    if let Some(ref v) = data.git_user_name {
-        set_config_value(&state, "git_user_name", v)?;
-    } else {
-        let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM config WHERE key = ?1", params!["git_user_name"])
-            .map_err(|e| format!("failed to delete config: {}", e))?;
-    }
-    if let Some(ref v) = data.lang {
-        set_config_value(&state, "lang", v)?;
-    } else {
-        let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM config WHERE key = ?1", params!["lang"])
-            .map_err(|e| format!("failed to delete config: {}", e))?;
-    }
-    if let Some(ref v) = data.theme {
-        set_config_value(&state, "theme", v)?;
-    } else {
-        let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM config WHERE key = ?1", params!["theme"])
-            .map_err(|e| format!("failed to delete config: {}", e))?;
-    }
+    opt_set(&state, "work_dir", &data.work_dir)?;
+    opt_set(&state, "git_user_name", &data.git_user_name)?;
+    opt_set(&state, "lang", &data.lang)?;
+    opt_set(&state, "theme", &data.theme)?;
+    opt_set(&state, "ai_provider", &data.ai_provider)?;
+    opt_set(&state, "ai_api_key", &data.ai_api_key)?;
+    opt_set(&state, "ai_base_url", &data.ai_base_url)?;
+    opt_set(&state, "ai_model", &data.ai_model)?;
     Ok(())
 }

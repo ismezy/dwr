@@ -21,9 +21,9 @@ function createReportsStore() {
 		loading = true;
 		try {
 			reports = await invoke<ReportMeta[]>('get_report_list', {
-				project_path: projectPath,
-				project_name: projectName,
-				work_dir: workDir,
+				projectPath,
+				projectName,
+				workDir,
 			});
 		} catch (e) {
 			console.error('failed to load reports:', e);
@@ -43,11 +43,11 @@ function createReportsStore() {
 		generating = true;
 		try {
 			const report = await invoke<DailyReport>('generate_daily_report', {
-				project_path: projectPath,
-				project_name: projectName,
-				git_user_name: gitUserName,
+				projectPath,
+				projectName,
+				gitUserName,
 				date,
-				work_dir: workDir,
+				workDir,
 			});
 			await loadReports(projectPath, projectName, workDir);
 			selectedDate = date;
@@ -68,10 +68,10 @@ function createReportsStore() {
 	) {
 		try {
 			content = await invoke<string>('read_report', {
-				project_path: projectPath,
-				project_name: projectName,
+				projectPath,
+				projectName,
 				date,
-				work_dir: workDir,
+				workDir,
 			});
 			selectedDate = date;
 		} catch (e) {
