@@ -10,6 +10,10 @@ pub struct ConfigData {
     pub work_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_user_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
 }
 
 pub struct ConfigDb {
@@ -73,6 +77,8 @@ pub fn get_configs(state: tauri::State<'_, ConfigDb>) -> Result<ConfigData, Stri
     Ok(ConfigData {
         work_dir: map.get("work_dir").cloned(),
         git_user_name: map.get("git_user_name").cloned(),
+        lang: map.get("lang").cloned(),
+        theme: map.get("theme").cloned(),
     })
 }
 
@@ -93,6 +99,20 @@ pub fn save_configs(
     } else {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM config WHERE key = ?1", params!["git_user_name"])
+            .map_err(|e| format!("failed to delete config: {}", e))?;
+    }
+    if let Some(ref v) = data.lang {
+        set_config_value(&state, "lang", v)?;
+    } else {
+        let conn = state.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM config WHERE key = ?1", params!["lang"])
+            .map_err(|e| format!("failed to delete config: {}", e))?;
+    }
+    if let Some(ref v) = data.theme {
+        set_config_value(&state, "theme", v)?;
+    } else {
+        let conn = state.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM config WHERE key = ?1", params!["theme"])
             .map_err(|e| format!("failed to delete config: {}", e))?;
     }
     Ok(())

@@ -1,10 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
+import { configStore } from './config.svelte';
 
 export interface Project {
 	id: string;
 	name: string;
 	code?: string;
 	path: string;
+	git_user_name?: string;
 }
 
 async function loadProjects(): Promise<Project[]> {
@@ -30,6 +32,11 @@ function createProjectsStore() {
 		}
 	}
 
+	function resolveGitUserName(project: Project | null): string | undefined {
+		if (!project) return undefined;
+		return project.git_user_name ?? configStore.configs.git_user_name;
+	}
+
 	return {
 		get projects() {
 			if (!initialized) init();
@@ -52,6 +59,7 @@ function createProjectsStore() {
 				name: project.name,
 				code: project.code,
 				path: project.path,
+				git_user_name: project.git_user_name,
 			});
 			projects = [...projects, created];
 			selectedId = created.id;
@@ -65,6 +73,7 @@ function createProjectsStore() {
 				name: patch.name ?? current.name,
 				code: patch.code ?? current.code,
 				path: patch.path ?? current.path,
+				git_user_name: patch.git_user_name ?? current.git_user_name,
 			});
 			projects = projects.map((p) => (p.id === id ? updated : p));
 			return updated;
@@ -77,6 +86,7 @@ function createProjectsStore() {
 				selectedId = next[0]?.id ?? null;
 			}
 		},
+		resolveGitUserName,
 	};
 }
 

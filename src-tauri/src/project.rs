@@ -10,6 +10,8 @@ pub struct Project {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_user_name: Option<String>,
 }
 
 pub struct DbConnection {
@@ -46,6 +48,11 @@ pub fn init_db(app_handle: &AppHandle) -> Result<DbConnection, String> {
         [],
     )
     .map_err(|e| format!("failed to create table: {}", e))?;
+    // 迁移：添加 git_user_name 列（兼容旧数据库）
+    let _ = conn.execute(
+        "ALTER TABLE projects ADD COLUMN git_user_name TEXT",
+        [],
+    );
     Ok(DbConnection::new(conn))
 }
 
@@ -55,12 +62,13 @@ pub fn create_project(
     name: String,
     code: Option<String>,
     path: String,
+    git_user_name: Option<String>,
 ) -> Result<Project, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT INTO projects (id, name, code, path) VALUES (?1, ?2, ?3, ?4)",
-        params![&id, &name, &code, &path],
+        "INSERT INTO projects (id, name, code, path, git_user_name) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![&id, &name, &code, &path, &git_user_name],
     )
     .map_err(|e| format!("failed to insert project: {}", e))?;
     Ok(Project {
@@ -68,6 +76,7 @@ pub fn create_project(
         name,
         code,
         path,
+        git_user_name,
     })
 }
 
@@ -75,7 +84,7 @@ pub fn create_project(
 pub fn get_projects(state: tauri::State<'_, DbConnection>) -> Result<Vec<Project>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, name, code, path FROM projects ORDER BY name")
+        .prepare("SELECT id, name, code, path, git_user_name FROM projects ORDER BY name")
         .map_err(|e| format!("failed to prepare statement: {}", e))?;
     let projects = stmt
         .query_map([], |row| {
@@ -84,6 +93,7 @@ pub fn get_projects(state: tauri::State<'_, DbConnection>) -> Result<Vec<Project
                 name: row.get(1)?,
                 code: row.get(2)?,
                 path: row.get(3)?,
+                git_user_name: row.get(4)?,
             })
         })
         .map_err(|e| format!("failed to query projects: {}", e))?
@@ -99,11 +109,12 @@ pub fn update_project(
     name: String,
     code: Option<String>,
     path: String,
+    git_user_name: Option<String>,
 ) -> Result<Project, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
-        "UPDATE projects SET name = ?1, code = ?2, path = ?3 WHERE id = ?4",
-        params![&name, &code, &path, &id],
+        "UPDATE projects SET name = ?1, code = ?2, path = ?3, git_user_name = ?4 WHERE id = ?5",
+        params![&name, &code, &path, &git_user_name, &id],
     )
     .map_err(|e| format!("failed to update project: {}", e))?;
     Ok(Project {
@@ -111,6 +122,7 @@ pub fn update_project(
         name,
         code,
         path,
+        git_user_name,
     })
 }
 

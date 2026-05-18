@@ -1,8 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
+import { i18n, type Locale } from '$lib/i18n';
+
+export type Theme = 'light' | 'dark' | 'system';
 
 export interface ConfigData {
 	work_dir?: string;
 	git_user_name?: string;
+	lang?: Locale;
+	theme?: Theme;
 }
 
 async function loadConfigs(): Promise<ConfigData> {
@@ -14,6 +19,24 @@ async function loadConfigs(): Promise<ConfigData> {
 	}
 }
 
+function applyTheme(theme?: Theme) {
+	const t = theme ?? 'system';
+	const root = document.documentElement;
+	const media = window.matchMedia('(prefers-color-scheme: dark)');
+	if (t === 'dark') {
+		root.classList.add('dark');
+	} else if (t === 'light') {
+		root.classList.remove('dark');
+	} else {
+		// system
+		if (media.matches) {
+			root.classList.add('dark');
+		} else {
+			root.classList.remove('dark');
+		}
+	}
+}
+
 function createConfigStore() {
 	let configs = $state<ConfigData>({});
 	let initialized = $state(false);
@@ -22,6 +45,10 @@ function createConfigStore() {
 		if (initialized) return;
 		configs = await loadConfigs();
 		initialized = true;
+		if (configs.lang) {
+			i18n.setLocale(configs.lang);
+		}
+		applyTheme(configs.theme);
 	}
 
 	return {
@@ -35,11 +62,20 @@ function createConfigStore() {
 		async refresh() {
 			configs = await loadConfigs();
 			initialized = true;
+			if (configs.lang) {
+				i18n.setLocale(configs.lang);
+			}
+			applyTheme(configs.theme);
 		},
 		async save(data: ConfigData) {
 			await invoke('save_configs', { data });
 			configs = data;
+			if (data.lang) {
+				i18n.setLocale(data.lang);
+			}
+			applyTheme(data.theme);
 		},
+		applyTheme,
 	};
 }
 

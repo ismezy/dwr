@@ -1,5 +1,6 @@
 mod config;
 mod project;
+mod report;
 
 use tauri::Manager;
 
@@ -28,6 +29,9 @@ pub fn run() {
             project::delete_project,
             config::get_configs,
             config::save_configs,
+            report::generate_daily_report,
+            report::get_report_list,
+            report::read_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
