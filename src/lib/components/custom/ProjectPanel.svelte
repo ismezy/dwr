@@ -12,6 +12,7 @@
 		DialogFooter,
 	} from '$lib/components/ui/dialog/index.js';
 	import { projectsStore, type Project } from '$lib/stores/projects.svelte';
+	import { i18n } from '$lib/i18n';
 	import { Folder, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, FolderGit2 } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 
@@ -21,11 +22,13 @@
 	let formName = $state('');
 	let formCode = $state('');
 	let formPath = $state('');
+	let formGitUserName = $state('');
 
 	function resetForm() {
 		formName = '';
 		formCode = '';
 		formPath = '';
+		formGitUserName = '';
 		editingId = null;
 	}
 
@@ -39,6 +42,7 @@
 		formName = project.name;
 		formCode = project.code ?? '';
 		formPath = project.path;
+		formGitUserName = project.git_user_name ?? '';
 		dialogOpen = true;
 	}
 
@@ -62,12 +66,14 @@
 				name,
 				code: formCode.trim() || undefined,
 				path,
+				git_user_name: formGitUserName.trim() || undefined,
 			});
 		} else {
 			await projectsStore.add({
 				name,
 				code: formCode.trim() || undefined,
 				path,
+				git_user_name: formGitUserName.trim() || undefined,
 			});
 		}
 		dialogOpen = false;
@@ -82,18 +88,18 @@
 
 <div
 	class={cn(
-		'flex flex-col h-full border-r bg-sidebar transition-all duration-300',
+		'flex flex-col h-full bg-sidebar transition-all duration-300 shrink-0',
 		collapsed ? 'w-12' : 'w-64'
 	)}
 >
 	<!-- Header -->
 	<div class="flex items-center justify-between px-2 py-3 border-b shrink-0">
 		{#if !collapsed}
-			<span class="text-sm font-semibold text-sidebar-foreground truncate">项目</span>
+			<span class="text-sm font-semibold text-sidebar-foreground truncate">{i18n.t('project.title')}</span>
 		{/if}
 		<div class="flex items-center gap-1">
 			{#if !collapsed}
-				<Button variant="ghost" size="icon" class="h-7 w-7" onclick={openAdd} title="添加项目">
+				<Button variant="ghost" size="icon" class="h-7 w-7" onclick={openAdd} title={i18n.t('project.add')}>
 					<Plus class="h-4 w-4" />
 				</Button>
 			{/if}
@@ -102,7 +108,7 @@
 				size="icon"
 				class="h-7 w-7"
 				onclick={() => (collapsed = !collapsed)}
-				title={collapsed ? '展开' : '收起'}
+				title={collapsed ? i18n.t('project.expand') : i18n.t('project.collapse')}
 			>
 				{#if collapsed}
 					<ChevronRight class="h-4 w-4" />
@@ -144,7 +150,7 @@
 										e.stopPropagation();
 										openEdit(project);
 									}}
-									title="编辑"
+									title={i18n.t('project.edit')}
 								>
 									<Pencil class="h-3 w-3" />
 								</Button>
@@ -162,14 +168,14 @@
 					</button>
 				{:else}
 					<div class="text-xs text-muted-foreground text-center py-8 px-2">
-						暂无项目，点击上方 + 添加
+						{i18n.t('project.emptyHint')}
 					</div>
 				{/each}
 			</div>
 		</ScrollArea>
 	{:else}
 		<div class="flex-1 flex flex-col items-center pt-2 gap-1">
-			<Button variant="ghost" size="icon" class="h-8 w-8" onclick={openAdd} title="添加项目">
+			<Button variant="ghost" size="icon" class="h-8 w-8" onclick={openAdd} title={i18n.t('project.add')}>
 				<Plus class="h-4 w-4" />
 			</Button>
 			{#each projectsStore.projects as project (project.id)}
@@ -194,24 +200,24 @@
 <Dialog bind:open={dialogOpen} onOpenChange={(v) => !v && resetForm()}>
 	<DialogContent class="sm:max-w-md">
 		<DialogHeader>
-			<DialogTitle>{editingId ? '编辑项目' : '添加项目'}</DialogTitle>
+			<DialogTitle>{editingId ? i18n.t('project.edit') : i18n.t('project.add')}</DialogTitle>
 		</DialogHeader>
 		<div class="grid gap-4 py-2">
 			<div class="grid gap-2">
-				<Label for="project-name">项目名称 *</Label>
-				<Input id="project-name" bind:value={formName} placeholder="输入项目名称" />
+				<Label for="project-name">{i18n.t('project.name')} *</Label>
+				<Input id="project-name" bind:value={formName} placeholder={i18n.t('project.name')} />
 			</div>
 			<div class="grid gap-2">
-				<Label for="project-code">项目编号</Label>
-				<Input id="project-code" bind:value={formCode} placeholder="可选" />
+				<Label for="project-code">{i18n.t('project.code')}</Label>
+				<Input id="project-code" bind:value={formCode} placeholder={i18n.t('common.optional')} />
 			</div>
 			<div class="grid gap-2">
-				<Label for="project-path">项目文件夹 *</Label>
+				<Label for="project-path">{i18n.t('project.path')} *</Label>
 				<div class="flex gap-2">
 					<Input
 						id="project-path"
 						bind:value={formPath}
-						placeholder="选择项目所在文件夹"
+						placeholder={i18n.t('project.path')}
 						class="flex-1"
 						readonly
 					/>
@@ -220,11 +226,25 @@
 					</Button>
 				</div>
 			</div>
+			<div class="grid gap-2">
+				<div class="flex items-center gap-2">
+					<Label for="project-git-user" class="flex-1">{i18n.t('project.gitUserName')}</Label>
+					<span class="text-xs text-muted-foreground">{i18n.t('project.gitUserNameHint')}</span>
+				</div>
+				<div class="flex gap-2">
+					<Input
+						id="project-git-user"
+						bind:value={formGitUserName}
+						placeholder={i18n.t('common.optional')}
+						class="flex-1"
+					/>
+				</div>
+			</div>
 		</div>
 		<DialogFooter>
-			<Button variant="outline" onclick={() => { dialogOpen = false; resetForm(); }}>取消</Button>
+			<Button variant="outline" onclick={() => { dialogOpen = false; resetForm(); }}>{i18n.t('common.cancel')}</Button>
 			<Button onclick={handleSave} disabled={!formName.trim() || !formPath.trim()}>
-				保存
+				{i18n.t('common.save')}
 			</Button>
 		</DialogFooter>
 	</DialogContent>
