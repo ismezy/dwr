@@ -1,3 +1,4 @@
+mod config;
 mod project;
 
 use tauri::Manager;
@@ -15,6 +16,8 @@ pub fn run() {
         .setup(|app| {
             let db = project::init_db(app.handle())?;
             app.manage(db);
+            let config_db = config::init_config_db(app.handle())?;
+            app.manage(config_db);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -23,6 +26,8 @@ pub fn run() {
             project::get_projects,
             project::update_project,
             project::delete_project,
+            config::get_configs,
+            config::save_configs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

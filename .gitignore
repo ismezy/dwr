@@ -8,10 +8,6 @@ node_modules
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
-/.idea/dwr.iml
-/.idea/modules.xml
-/.idea/vcs.xml
-/.idea/.gitignore
-/.vscode/extensions.json
-/.vscode/settings.json
-/yarn.lock
+/.idea
+/.vscode
+/*.lock
