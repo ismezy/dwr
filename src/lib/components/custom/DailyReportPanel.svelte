@@ -8,15 +8,18 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
-	import { CalendarDays, FileText, Sparkles, Loader, ChevronDown } from '@lucide/svelte';
+	import { CalendarDays, FileText, Sparkles, Loader, ChevronDown, ChevronRight, FolderOpen, Folder } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 	import * as Calendar from '$lib/components/ui/calendar/index.js';
 	import { CalendarDate, type DateValue } from '@internationalized/date';
+	import { untrack } from 'svelte';
 
 	let showAiAlert = $state(false);
 	let showGenerateMenu = $state(false);
 	let showDateDialog = $state(false);
 	let customCalendarValue = $state<DateValue | undefined>(undefined);
+	let expandedYears = $state<Set<string>>(new Set());
+	let expandedMonths = $state<Set<string>>(new Set());
 
 	function calendarValueToStr(value: DateValue | undefined): string {
 		if (!value) return '';
@@ -191,12 +194,126 @@
 		handleGenerate(calendarValueToStr(customCalendarValue));
 	}
 
+	// Tree expand/collapse
+	function toggleYear(year: string) {
+		const next = new Set(expandedYears);
+		if (next.has(year)) {
+			next.delete(year);
+		} else {
+			next.add(year);
+		}
+		expandedYears = next;
+	}
+
+	function toggleMonth(yearMonth: string) {
+		const next = new Set(expandedMonths);
+		if (next.has(yearMonth)) {
+			next.delete(yearMonth);
+		} else {
+			next.add(yearMonth);
+		}
+		expandedMonths = next;
+	}
+
+	function isYearExpanded(year: string): boolean {
+		return expandedYears.has(year);
+	}
+
+	function isMonthExpanded(yearMonth: string): boolean {
+		return expandedMonths.has(yearMonth);
+	}
+
+	// Group daily reports by year/month
+	function groupDailyReports(reports: { date: string; path: string }[]) {
+		const yearMap = new Map<string, Map<string, { date: string; path: string }[]>>();
+		for (const report of reports) {
+			const [y, m] = report.date.split('-');
+			if (!yearMap.has(y)) yearMap.set(y, new Map());
+			const monthMap = yearMap.get(y)!;
+			if (!monthMap.has(m)) monthMap.set(m, []);
+			monthMap.get(m)!.push(report);
+		}
+		// Sort descending
+		return Array.from(yearMap.entries())
+			.sort((a, b) => b[0].localeCompare(a[0]))
+			.map(([year, monthMap]) => ({
+				year,
+				months: Array.from(monthMap.entries())
+					.sort((a, b) => b[0].localeCompare(a[0]))
+					.map(([month, items]) => ({
+						month,
+						items: items.sort((a, b) => b.date.localeCompare(a.date)),
+					})),
+			}));
+	}
+
+	// Group weekly reports by year
+	function groupWeeklyReports(reports: { date: string; path: string }[]) {
+		const yearMap = new Map<string, { date: string; path: string }[]>();
+		for (const report of reports) {
+			const year = report.date.split('-')[0];
+			if (!yearMap.has(year)) yearMap.set(year, []);
+			yearMap.get(year)!.push(report);
+		}
+		return Array.from(yearMap.entries())
+			.sort((a, b) => b[0].localeCompare(a[0]))
+			.map(([year, items]) => ({
+				year,
+				items: items.sort((a, b) => b.date.localeCompare(a.date)),
+			}));
+	}
+
+	// Auto expand current year/month when reports change
+	$effect(() => {
+		const _period = reportsStore.reportPeriod;
+		const _reports = reportsStore.reports;
+		const _summary = reportsStore.summaryReports;
+
+		const today = getTodayStr();
+		const [currentYear, currentMonth] = today.split('-');
+
+		// Use untrack to avoid self-triggering when expanded state changes
+		const currentYears = untrack(() => expandedYears);
+		const currentMonths = untrack(() => expandedMonths);
+
+		let changed = false;
+		const nextYears = new Set(currentYears);
+		const nextMonths = new Set(currentMonths);
+
+		if (_period === 'weekly') {
+			const hasCurrentYear = _reports.some(r => r.date.startsWith(currentYear)) ||
+				_summary.some(r => r.date.startsWith(currentYear));
+			if (hasCurrentYear && !nextYears.has(currentYear)) {
+				nextYears.add(currentYear);
+				changed = true;
+			}
+		} else {
+			const hasCurrentYear = _reports.some(r => r.date.startsWith(currentYear)) ||
+				_summary.some(r => r.date.startsWith(currentYear));
+			if (hasCurrentYear) {
+				if (!nextYears.has(currentYear)) {
+					nextYears.add(currentYear);
+					changed = true;
+				}
+				const monthKey = `${currentYear}-${currentMonth}`;
+				if (!nextMonths.has(monthKey)) {
+					nextMonths.add(monthKey);
+					changed = true;
+				}
+			}
+		}
+
+		if (changed) {
+			expandedYears = nextYears;
+			expandedMonths = nextMonths;
+		}
+	});
+
 	$effect(() => {
 		if (!showGenerateMenu) return;
 		function handleDocClick() {
 			showGenerateMenu = false;
 		}
-		// Delay to avoid immediate close from the same click that opened
 		setTimeout(() => {
 			document.addEventListener('click', handleDocClick, { once: true });
 		}, 10);
@@ -324,27 +441,109 @@
 						<div class="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
 							{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.summarySectionWeekly') : i18n.t('dailyReport.summarySection')}
 						</div>
-						<div class="space-y-1 mt-1">
-							{#each reportsStore.summaryReports as report (report.date)}
-								<button
-									class={cn(
-										'w-full text-left rounded-md px-3 py-2 transition-colors flex items-center gap-2',
-										reportsStore.summarySelectedDate === report.date
-											? 'bg-accent text-accent-foreground'
-											: 'hover:bg-accent/50 text-foreground'
-									)}
-									onclick={() => handleSelectSummary(report.date)}
-								>
-									<FileText class="h-4 w-4 shrink-0 opacity-60" />
-									<div class="flex-1 min-w-0">
-										<div class="text-sm font-medium">{report.date}</div>
+						<div class="space-y-0.5 mt-1">
+							{#if reportsStore.reportPeriod === 'weekly'}
+								{#each groupWeeklyReports(reportsStore.summaryReports) as yearGroup}
+									<div>
+										<button
+											class="w-full flex items-center gap-1 px-2 py-1 text-sm font-medium hover:bg-accent/50 rounded-md transition-colors"
+											onclick={() => toggleYear(yearGroup.year)}
+										>
+											{#if isYearExpanded(yearGroup.year)}
+												<FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+												<ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
+											{:else}
+												<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+												<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
+											{/if}
+											<span>{yearGroup.year}年</span>
+										</button>
+										{#if isYearExpanded(yearGroup.year)}
+											<div class="pl-5 space-y-0.5">
+												{#each yearGroup.items as report}
+													<button
+														class={cn(
+															'w-full text-left rounded-md px-3 py-1.5 transition-colors flex items-center gap-2 text-sm',
+															reportsStore.summarySelectedDate === report.date
+																? 'bg-accent text-accent-foreground'
+																: 'hover:bg-accent/50 text-foreground'
+														)}
+														onclick={() => handleSelectSummary(report.date)}
+													>
+														<FileText class="h-3.5 w-3.5 shrink-0 opacity-60" />
+														<span>{report.date}</span>
+													</button>
+												{/each}
+											</div>
+										{/if}
 									</div>
-								</button>
+								{:else}
+									<div class="text-xs text-muted-foreground text-center py-4 px-2">
+										{i18n.t('dailyReport.emptyHintWeekly')}
+									</div>
+								{/each}
 							{:else}
-								<div class="text-xs text-muted-foreground text-center py-4 px-2">
-									{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.emptyHintWeekly') : i18n.t('dailyReport.emptyHint')}
-								</div>
-							{/each}
+								{#each groupDailyReports(reportsStore.summaryReports) as yearGroup}
+									<div>
+										<button
+											class="w-full flex items-center gap-1 px-2 py-1 text-sm font-medium hover:bg-accent/50 rounded-md transition-colors"
+											onclick={() => toggleYear(yearGroup.year)}
+										>
+											{#if isYearExpanded(yearGroup.year)}
+												<FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+												<ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
+											{:else}
+												<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+												<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
+											{/if}
+											<span>{yearGroup.year}年</span>
+										</button>
+										{#if isYearExpanded(yearGroup.year)}
+											<div class="pl-5 space-y-0.5">
+												{#each yearGroup.months as monthGroup}
+													<div>
+														<button
+															class="w-full flex items-center gap-1 px-2 py-1 text-sm hover:bg-accent/50 rounded-md transition-colors"
+															onclick={() => toggleMonth(`${yearGroup.year}-${monthGroup.month}`)}
+														>
+															{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
+																<FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+																<ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
+															{:else}
+																<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+																<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
+															{/if}
+															<span>{monthGroup.month}月</span>
+														</button>
+														{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
+															<div class="pl-5 space-y-0.5">
+																{#each monthGroup.items as report}
+																	<button
+																		class={cn(
+																			'w-full text-left rounded-md px-3 py-1.5 transition-colors flex items-center gap-2 text-sm',
+																			reportsStore.summarySelectedDate === report.date
+																				? 'bg-accent text-accent-foreground'
+																				: 'hover:bg-accent/50 text-foreground'
+																		)}
+																		onclick={() => handleSelectSummary(report.date)}
+																	>
+																		<FileText class="h-3.5 w-3.5 shrink-0 opacity-60" />
+																		<span>{report.date}</span>
+																	</button>
+																{/each}
+															</div>
+														{/if}
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
+								{:else}
+									<div class="text-xs text-muted-foreground text-center py-4 px-2">
+										{i18n.t('dailyReport.emptyHint')}
+									</div>
+								{/each}
+							{/if}
 						</div>
 					</div>
 				{/if}
@@ -358,27 +557,109 @@
 									{projectsStore.selected.name}
 								</div>
 							{/if}
-							<div class="space-y-1 mt-1">
-								{#each reportsStore.reports as report (report.date)}
-									<button
-										class={cn(
-											'w-full text-left rounded-md px-3 py-2 transition-colors flex items-center gap-2',
-											reportsStore.selectedDate === report.date
-												? 'bg-accent text-accent-foreground'
-												: 'hover:bg-accent/50 text-foreground'
-										)}
-										onclick={() => handleSelect(report.date)}
-									>
-										<FileText class="h-4 w-4 shrink-0 opacity-60" />
-										<div class="flex-1 min-w-0">
-											<div class="text-sm font-medium">{report.date}</div>
+							<div class="space-y-0.5 mt-1">
+								{#if reportsStore.reportPeriod === 'weekly'}
+									{#each groupWeeklyReports(reportsStore.reports) as yearGroup}
+										<div>
+											<button
+												class="w-full flex items-center gap-1 px-2 py-1 text-sm font-medium hover:bg-accent/50 rounded-md transition-colors"
+												onclick={() => toggleYear(yearGroup.year)}
+											>
+												{#if isYearExpanded(yearGroup.year)}
+													<FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+													<ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
+												{:else}
+													<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+													<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
+												{/if}
+												<span>{yearGroup.year}年</span>
+											</button>
+											{#if isYearExpanded(yearGroup.year)}
+												<div class="pl-5 space-y-0.5">
+													{#each yearGroup.items as report}
+														<button
+															class={cn(
+																'w-full text-left rounded-md px-3 py-1.5 transition-colors flex items-center gap-2 text-sm',
+																reportsStore.selectedDate === report.date
+																	? 'bg-accent text-accent-foreground'
+																	: 'hover:bg-accent/50 text-foreground'
+															)}
+															onclick={() => handleSelect(report.date)}
+														>
+															<FileText class="h-3.5 w-3.5 shrink-0 opacity-60" />
+															<span>{report.date}</span>
+														</button>
+													{/each}
+												</div>
+											{/if}
 										</div>
-									</button>
+									{:else}
+										<div class="text-xs text-muted-foreground text-center py-4 px-2">
+											{i18n.t('dailyReport.emptyHintWeekly')}
+										</div>
+									{/each}
 								{:else}
-									<div class="text-xs text-muted-foreground text-center py-4 px-2">
-										{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.emptyHintWeekly') : i18n.t('dailyReport.emptyHint')}
-									</div>
-								{/each}
+									{#each groupDailyReports(reportsStore.reports) as yearGroup}
+										<div>
+											<button
+												class="w-full flex items-center gap-1 px-2 py-1 text-sm font-medium hover:bg-accent/50 rounded-md transition-colors"
+												onclick={() => toggleYear(yearGroup.year)}
+											>
+												{#if isYearExpanded(yearGroup.year)}
+													<FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+													<ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
+												{:else}
+													<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+													<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
+												{/if}
+												<span>{yearGroup.year}年</span>
+											</button>
+											{#if isYearExpanded(yearGroup.year)}
+												<div class="pl-5 space-y-0.5">
+													{#each yearGroup.months as monthGroup}
+														<div>
+															<button
+																class="w-full flex items-center gap-1 px-2 py-1 text-sm hover:bg-accent/50 rounded-md transition-colors"
+																onclick={() => toggleMonth(`${yearGroup.year}-${monthGroup.month}`)}
+															>
+																{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
+																	<FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+																	<ChevronDown class="h-3 w-3 shrink-0 text-muted-foreground" />
+																{:else}
+																	<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+																	<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
+																{/if}
+																<span>{monthGroup.month}月</span>
+															</button>
+															{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
+																<div class="pl-5 space-y-0.5">
+																	{#each monthGroup.items as report}
+																		<button
+																			class={cn(
+																				'w-full text-left rounded-md px-3 py-1.5 transition-colors flex items-center gap-2 text-sm',
+																				reportsStore.selectedDate === report.date
+																					? 'bg-accent text-accent-foreground'
+																					: 'hover:bg-accent/50 text-foreground'
+																				)}
+																			onclick={() => handleSelect(report.date)}
+																		>
+																			<FileText class="h-3.5 w-3.5 shrink-0 opacity-60" />
+																			<span>{report.date}</span>
+																		</button>
+																	{/each}
+																</div>
+															{/if}
+														</div>
+													{/each}
+												</div>
+											{/if}
+										</div>
+									{:else}
+										<div class="text-xs text-muted-foreground text-center py-4 px-2">
+											{i18n.t('dailyReport.emptyHint')}
+										</div>
+									{/each}
+								{/if}
 							</div>
 						</div>
 					{:else if reportsStore.mode === 'per-project'}

@@ -288,6 +288,8 @@ pub fn get_summary_report_list(
         let year_entry = year_entry.map_err(|e| format!("failed to read entry: {}", e))?;
         let year_path = year_entry.path();
         if !year_path.is_dir() { continue; }
+        let year_name = year_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if year_name == "weekly" { continue; }
         for month_entry in std::fs::read_dir(&year_path).map_err(|e| format!("failed to read dir: {}", e))? {
             let month_entry = month_entry.map_err(|e| format!("failed to read entry: {}", e))?;
             let month_path = month_entry.path();
