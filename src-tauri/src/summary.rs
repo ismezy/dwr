@@ -5,7 +5,7 @@ use tauri::Manager;
 use crate::ai;
 use crate::config::ConfigDb;
 use crate::project::{DbConnection, Project};
-use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding, get_week_start, parse_date, format_date, next_date, prev_date};
+use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding, get_week_start, parse_date, format_date, next_date, prev_date, check_git_available};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryReport {
@@ -223,6 +223,10 @@ pub async fn generate_summary_report(
     date: String,
     work_dir: Option<String>,
 ) -> Result<SummaryReport, String> {
+    let configs = crate::config::get_configs(config_state)?;
+    let git_path = configs.git_path.as_deref();
+    check_git_available(git_path)?;
+
     // 获取所有项目
     let projects = crate::project::get_projects(project_state)?;
 
@@ -233,12 +237,10 @@ pub async fn generate_summary_report(
         let git_user = project.git_user_name.as_deref();
         let since = format!("{} 00:00:00", date);
         let until = format!("{} 23:59:59", date);
-        let commits = run_git_log(&project.path, git_user, &since, &until).unwrap_or_default();
+        let commits = run_git_log(&project.path, git_user, &since, &until, git_path).unwrap_or_default();
         total_commits += commits.len();
         projects_commits.push((project.clone(), commits));
     }
-
-    let configs = crate::config::get_configs(config_state)?;
 
     let week_start_day = configs.week_start_day.unwrap_or(1);
     let recent_reports = collect_this_week_summary_reports(app_handle.clone(), &date, week_start_day, work_dir.as_deref());

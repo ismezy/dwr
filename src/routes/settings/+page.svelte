@@ -17,6 +17,7 @@
 	let lang = $state<Locale>('zh');
 	let theme = $state<Theme>('system');
 	let weekStartDay = $state<number>(1);
+	let gitPath = $state('');
 	let aiProvider = $state<string>('');
 	let aiApiKey = $state('');
 	let aiBaseUrl = $state('');
@@ -25,8 +26,8 @@
 	let fetchedModels = $state<{ id: string; label: string }[]>([]);
 	let fetchingModels = $state(false);
 
-	const DEFAULT_TEMPLATE_ZH = '# 年-月-日 工作日报\n## 今日工作概览\n\n## 今日完成任务\n\n## 明日工作计划';
-	const DEFAULT_TEMPLATE_EN = "# YYYY-MM-DD Daily Report\n## Today's Overview\n\n## Completed Tasks\n\n## Tomorrow's Plan";
+	const DEFAULT_TEMPLATE_ZH = '# [年-月-日]或[年-月-日至年-月-日] 工作[日报/周报]\n## [今日/本周]工作概览\n[多项目工作内容总结，如果无项目无工作内容不要生成]\n\n## [今日/本周]完成任务\n[如果只有一个项目有工作内容，直接生成内容。否则用三级标题生成项目任务]\n\n## [次日/下周]工作计划\n[根据工作内容生成计划]';
+	const DEFAULT_TEMPLATE_EN = '# [YYYY-MM-DD] or [YYYY-MM-DD to YYYY-MM-DD] [Daily/Weekly] Report\n## [Today/This Week] Overview\n[Summarize work across projects. Do not generate if no projects or no work content.]\n\n## [Today/This Week] Completed Tasks\n[If only one project has content, output directly. Otherwise use third-level headings for each project.]\n\n## [Tomorrow/Next Week] Work Plan\n[Generate plan based on work content]';
 
 	async function init() {
 		await configStore.refresh();
@@ -35,6 +36,7 @@
 		lang = configStore.configs.lang ?? 'zh';
 		theme = configStore.configs.theme ?? 'system';
 		weekStartDay = configStore.configs.week_start_day ?? 1;
+		gitPath = configStore.configs.git_path ?? '';
 		aiProvider = configStore.configs.ai_provider ?? '';
 		aiApiKey = configStore.configs.ai_api_key ?? '';
 		aiBaseUrl = configStore.configs.ai_base_url ?? '';
@@ -219,6 +221,16 @@
 							bind:value={gitUserName}
 							placeholder={i18n.t('config.gitUserName')}
 						/>
+					</div>
+
+					<div class="grid gap-2">
+						<Label for="git-path">{i18n.t('config.gitPath')}</Label>
+						<Input
+							id="git-path"
+							bind:value={gitPath}
+							placeholder={i18n.t('config.gitPathHint')}
+						/>
+						<div class="text-xs text-muted-foreground">{i18n.t('config.gitPathHelp')}</div>
 					</div>
 
 					<div class="grid gap-2">

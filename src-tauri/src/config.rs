@@ -17,6 +17,8 @@ pub struct ConfigData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub week_start_day: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_api_key: Option<String>,
@@ -108,6 +110,7 @@ pub fn get_configs(state: tauri::State<'_, ConfigDb>) -> Result<ConfigData, Stri
         lang: map.get("lang").cloned(),
         theme: map.get("theme").cloned(),
         week_start_day: map.get("week_start_day").and_then(|s| s.parse().ok()),
+        git_path: map.get("git_path").cloned(),
         ai_provider: map.get("ai_provider").cloned(),
         ai_api_key: map.get("ai_api_key").cloned(),
         ai_base_url: map.get("ai_base_url").cloned(),
@@ -126,6 +129,7 @@ pub fn save_configs(
     opt_set(&state, "lang", &data.lang)?;
     opt_set(&state, "theme", &data.theme)?;
     opt_set(&state, "week_start_day", &data.week_start_day.map(|v| v.to_string()))?;
+    opt_set(&state, "git_path", &data.git_path)?;
     opt_set(&state, "ai_provider", &data.ai_provider)?;
     opt_set(&state, "ai_api_key", &data.ai_api_key)?;
     opt_set(&state, "ai_base_url", &data.ai_base_url)?;

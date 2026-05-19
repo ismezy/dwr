@@ -7,6 +7,7 @@ export type AiProvider = 'openai' | 'anthropic' | 'gemini' | 'custom' | '';
 export interface ConfigData {
 	work_dir?: string;
 	git_user_name?: string;
+	git_path?: string;
 	lang?: Locale;
 	theme?: Theme;
 	week_start_day?: number;

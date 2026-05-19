@@ -88,13 +88,38 @@ pub fn find_report_file(base_dir: &std::path::Path, date: &str) -> Option<std::p
     None
 }
 
+fn resolve_git_cmd(git_path: Option<&str>) -> std::process::Command {
+    if let Some(path) = git_path {
+        if !path.is_empty() {
+            return Command::new(path);
+        }
+    }
+    Command::new("git")
+}
+
+pub fn check_git_available(git_path: Option<&str>) -> Result<(), String> {
+    let mut cmd = resolve_git_cmd(git_path);
+    cmd.arg("--version");
+    match cmd.output() {
+        Ok(output) if output.status.success() => Ok(()),
+        _ => {
+            if git_path.is_some() {
+                Err("Git command not found at the configured path. Please check your Git path setting.".to_string())
+            } else {
+                Err("Git command not found. Please install Git or configure the Git path in settings.".to_string())
+            }
+        }
+    }
+}
+
 pub fn run_git_log(
     project_path: &str,
     git_user_name: Option<&str>,
     since: &str,
     until: &str,
+    git_path: Option<&str>,
 ) -> Result<Vec<CommitInfo>, String> {
-    let mut cmd = Command::new("git");
+    let mut cmd = resolve_git_cmd(git_path);
     cmd.arg("-C")
         .arg(project_path)
         .arg("log")
@@ -134,15 +159,15 @@ pub fn run_git_log(
 
     // 获取每个 commit 的变更文件
     for commit in &mut commits {
-        let files_output = Command::new("git")
-            .arg("-C")
+        let mut diff_cmd = resolve_git_cmd(git_path);
+        diff_cmd.arg("-C")
             .arg(project_path)
             .arg("diff-tree")
             .arg("--no-commit-id")
             .arg("--name-only")
             .arg("-r")
-            .arg(&commit.hash)
-            .output()
+            .arg(&commit.hash);
+        let files_output = diff_cmd.output()
             .map_err(|e| format!("failed to run git diff-tree: {}", e))?;
 
         if files_output.status.success() {
@@ -479,11 +504,13 @@ pub async fn generate_daily_report(
     date: String,
     work_dir: Option<String>,
 ) -> Result<DailyReport, String> {
+    let configs = crate::config::get_configs(state)?;
+    let git_path = configs.git_path.as_deref();
+    check_git_available(git_path)?;
+
     let since = format!("{} 00:00:00", date);
     let until = format!("{} 23:59:59", date);
-    let commits = run_git_log(&project_path, git_user_name.as_deref(), &since, &until)?;
-
-    let configs = crate::config::get_configs(state)?;
+    let commits = run_git_log(&project_path, git_user_name.as_deref(), &since, &until, git_path)?;
 
     let week_start_day = configs.week_start_day.unwrap_or(1);
     let recent_reports = collect_this_week_daily_reports(&project_path, &project_name, &date, week_start_day, work_dir.as_deref());

@@ -15,6 +15,7 @@
 	import { untrack } from 'svelte';
 
 	let showAiAlert = $state(false);
+	let showNoProjectAlert = $state(false);
 	let showGenerateMenu = $state(false);
 	let showDateDialog = $state(false);
 	let customCalendarValue = $state<DateValue | undefined>(undefined);
@@ -138,6 +139,10 @@
 	}
 
 	function handleGenerate(date: string, weekEnd?: string) {
+		if (projectsStore.projects.length === 0) {
+			showNoProjectAlert = true;
+			return;
+		}
 		const mode = reportsStore.mode;
 		if (mode === 'per-project') {
 			handleGenerateProject(date, weekEnd);
@@ -700,6 +705,22 @@
 			<AlertDialog.Action onclick={goToSettings}>
 				{i18n.t('settings.title')}
 			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root bind:open={showNoProjectAlert}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>{i18n.t('dailyReport.noProjectTitle')}</AlertDialog.Title>
+			<AlertDialog.Description>
+				{i18n.t('dailyReport.noProjectMessage')}
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel onclick={() => (showNoProjectAlert = false)}>
+				{i18n.t('common.cancel')}
+			</AlertDialog.Cancel>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
