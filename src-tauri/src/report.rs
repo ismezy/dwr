@@ -315,10 +315,10 @@ pub async fn generate_daily_report(
         format_report(&date, &project_name, &commits)
     };
 
-    let dir = report_dir(&project_path, &project_name, work_dir.as_deref());
-    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create report dir: {}", e))?;
-
     let path = report_path(&project_path, &project_name, &date, work_dir.as_deref());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create report dir: {}", e))?;
+    }
     std::fs::write(&path, &content).map_err(|e| format!("failed to write report: {}", e))?;
 
     Ok(DailyReport { date, content })
@@ -427,6 +427,9 @@ pub fn save_report(
     work_dir: Option<String>,
 ) -> Result<(), String> {
     let path = report_path(&project_path, &project_name, &date, work_dir.as_deref());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create report dir: {}", e))?;
+    }
     std::fs::write(&path, content).map_err(|e| format!("failed to save report: {}", e))
 }
 

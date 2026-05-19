@@ -7,30 +7,77 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
-	import { CalendarDays, FileText, Sparkles, Loader } from '@lucide/svelte';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
+	import { CalendarDays, FileText, Sparkles, Loader, ChevronDown } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
+	import * as Calendar from '$lib/components/ui/calendar/index.js';
+	import { CalendarDate, type DateValue } from '@internationalized/date';
 
 	let showAiAlert = $state(false);
+	let showGenerateMenu = $state(false);
+	let showDateDialog = $state(false);
+	let customCalendarValue = $state<DateValue | undefined>(undefined);
+
+	function calendarValueToStr(value: DateValue | undefined): string {
+		if (!value) return '';
+		return `${value.year}-${String(value.month).padStart(2, '0')}-${String(value.day).padStart(2, '0')}`;
+	}
 
 	function getTodayStr() {
 		const d = new Date();
 		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 	}
 
-	function getReportDate(): { date: string; weekEnd?: string } {
-		if (reportsStore.reportPeriod === 'weekly') {
-			const { start, end } = getWeekRange(getTodayStr(), configStore.configs.week_start_day ?? 1);
-			return { date: start, weekEnd: end };
-		}
-		return { date: getTodayStr() };
+	function offsetDate(dateStr: string, days: number): string {
+		const date = new Date(dateStr + 'T00:00:00');
+		date.setDate(date.getDate() + days);
+		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 	}
+
+	function getDailyOptions() {
+		const today = getTodayStr();
+		return [
+			{ label: i18n.t('dailyReport.yesterday'), date: offsetDate(today, -1) },
+			{ label: i18n.t('dailyReport.dayBeforeYesterday'), date: offsetDate(today, -2) },
+			{ label: i18n.t('dailyReport.threeDaysAgo'), date: offsetDate(today, -3) },
+		];
+	}
+
+	function getWeeklyOptions() {
+		const today = getTodayStr();
+		const thisWeek = getWeekRange(today, configStore.configs.week_start_day ?? 1);
+		return [
+			{
+				label: i18n.t('dailyReport.lastWeek'),
+				start: offsetDate(thisWeek.start, -7),
+				end: offsetDate(thisWeek.end, -7),
+			},
+			{
+				label: i18n.t('dailyReport.twoWeeksAgo'),
+				start: offsetDate(thisWeek.start, -14),
+				end: offsetDate(thisWeek.end, -14),
+			},
+		];
+	}
+
+	function initCustomDate() {
+		const d = new Date();
+		d.setDate(d.getDate() - 4);
+		customCalendarValue = new CalendarDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+	}
+
+	$effect(() => {
+		// Reset custom date when period changes
+		const _ = reportsStore.reportPeriod;
+		initCustomDate();
+	});
 
 	function isAiConfigured(): boolean {
 		const cfg = configStore.configs;
 		return !!cfg.ai_provider && !!cfg.ai_api_key;
 	}
 
-	async function handleGenerateProject() {
+	async function handleGenerateProject(date: string, weekEnd?: string) {
 		const project = projectsStore.selected;
 		if (!project) return;
 
@@ -39,7 +86,6 @@
 			return;
 		}
 
-		const { date, weekEnd } = getReportDate();
 		const gitUser = projectsStore.resolveGitUserName(project);
 		await reportsStore.generateReport(
 			project.path,
@@ -51,13 +97,11 @@
 		);
 	}
 
-	async function handleGenerateSummary() {
+	async function handleGenerateSummary(date: string, weekEnd?: string) {
 		if (!isAiConfigured()) {
 			showAiAlert = true;
 			return;
 		}
-
-		const { date, weekEnd } = getReportDate();
 		await reportsStore.generateSummaryReport(
 			date,
 			configStore.configs.work_dir,
@@ -65,13 +109,12 @@
 		);
 	}
 
-	async function handleGenerateAll() {
+	async function handleGenerateAll(date: string, weekEnd?: string) {
 		if (!isAiConfigured()) {
 			showAiAlert = true;
 			return;
 		}
 		const project = projectsStore.selected;
-		const { date, weekEnd } = getReportDate();
 		if (project) {
 			const gitUser = projectsStore.resolveGitUserName(project);
 			await reportsStore.generateReport(
@@ -90,14 +133,23 @@
 		);
 	}
 
-	function handleGenerate() {
+	function handleGenerate(date: string, weekEnd?: string) {
 		const mode = reportsStore.mode;
 		if (mode === 'per-project') {
-			handleGenerateProject();
+			handleGenerateProject(date, weekEnd);
 		} else if (mode === 'summary') {
-			handleGenerateSummary();
+			handleGenerateSummary(date, weekEnd);
 		} else {
-			handleGenerateAll();
+			handleGenerateAll(date, weekEnd);
+		}
+	}
+
+	function handleGenerateToday() {
+		if (reportsStore.reportPeriod === 'weekly') {
+			const { start, end } = getWeekRange(getTodayStr(), configStore.configs.week_start_day ?? 1);
+			handleGenerate(start, end);
+		} else {
+			handleGenerate(getTodayStr());
 		}
 	}
 
@@ -124,6 +176,34 @@
 	function setReportPeriod(period: 'daily' | 'weekly') {
 		reportsStore.setReportPeriod(period);
 	}
+
+	function closeMenu() {
+		showGenerateMenu = false;
+	}
+
+	function openDateDialog() {
+		closeMenu();
+		showDateDialog = true;
+	}
+
+	function confirmCustomDate() {
+		showDateDialog = false;
+		handleGenerate(calendarValueToStr(customCalendarValue));
+	}
+
+	$effect(() => {
+		if (!showGenerateMenu) return;
+		function handleDocClick() {
+			showGenerateMenu = false;
+		}
+		// Delay to avoid immediate close from the same click that opened
+		setTimeout(() => {
+			document.addEventListener('click', handleDocClick, { once: true });
+		}, 10);
+		return () => {
+			document.removeEventListener('click', handleDocClick);
+		};
+	});
 
 	$effect(() => {
 		const project = projectsStore.selected;
@@ -174,21 +254,63 @@
 			</div>
 		</div>
 		{#if projectsStore.selected}
-			<Button
-				variant="ghost"
-				size="sm"
-				class="h-7 px-2 text-xs shrink-0"
-				onclick={handleGenerate}
-				disabled={reportsStore.generating || reportsStore.summaryGenerating}
-				title={reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.generateWeekly') : i18n.t('dailyReport.generate')}
-			>
-				{#if reportsStore.generating || reportsStore.summaryGenerating}
-					<Loader class="h-3 w-3 mr-1 animate-spin" />
-				{:else}
-					<Sparkles class="h-3 w-3 mr-1" />
-				{/if}
-				{reportsStore.generating || reportsStore.summaryGenerating ? i18n.t('dailyReport.generating') : (reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.generateWeekly') : i18n.t('dailyReport.generate'))}
-			</Button>
+			<div class="flex items-center">
+				<Button
+					variant="ghost"
+					size="sm"
+					class="h-7 px-2 text-xs shrink-0 rounded-r-none"
+					onclick={handleGenerateToday}
+					disabled={reportsStore.generating || reportsStore.summaryGenerating}
+				>
+					{#if reportsStore.generating || reportsStore.summaryGenerating}
+						<Loader class="h-3 w-3 mr-1 animate-spin" />
+					{:else}
+						<Sparkles class="h-3 w-3 mr-1" />
+					{/if}
+					{reportsStore.generating || reportsStore.summaryGenerating ? i18n.t('dailyReport.generating') : (reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.generateWeekly') : i18n.t('dailyReport.generate'))}
+				</Button>
+				<div class="relative">
+					<Button
+						variant="ghost"
+						size="icon"
+						class="h-7 w-6 rounded-l-none border-l border-border/50"
+						onclick={(e) => { e.stopPropagation(); showGenerateMenu = !showGenerateMenu; }}
+						disabled={reportsStore.generating || reportsStore.summaryGenerating}
+					>
+						<ChevronDown class="h-3 w-3" />
+					</Button>
+					{#if showGenerateMenu}
+						<div class="generate-menu absolute right-0 top-full mt-1 w-52 rounded-md border bg-popover shadow-md z-50 py-1">
+							{#if reportsStore.reportPeriod === 'daily'}
+								{#each getDailyOptions() as opt}
+									<button
+										class="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+										onclick={() => { closeMenu(); handleGenerate(opt.date); }}
+									>
+										{i18n.t('dailyReport.generate').replace('今天', opt.label)}
+									</button>
+								{/each}
+								<div class="border-t my-1"></div>
+								<button
+									class="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+									onclick={openDateDialog}
+								>
+									{i18n.t('dailyReport.selectDate')}
+								</button>
+							{:else}
+								{#each getWeeklyOptions() as opt}
+									<button
+										class="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+										onclick={() => { closeMenu(); handleGenerate(opt.start, opt.end); }}
+									>
+										{i18n.t('dailyReport.generateWeekly').replace('本周', opt.label)}
+									</button>
+								{/each}
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
 		{/if}
 	</div>
 
@@ -296,3 +418,27 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<Dialog.Root bind:open={showDateDialog}>
+	<Dialog.Content class="sm:max-w-[360px]">
+		<Dialog.Header>
+			<Dialog.Title>{i18n.t('dailyReport.selectDate')}</Dialog.Title>
+		</Dialog.Header>
+		<div class="py-4 flex justify-center">
+			<Calendar.Calendar
+				type="single"
+				bind:value={customCalendarValue}
+				captionLayout="dropdown"
+				class="rounded-md border"
+			/>
+		</div>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => (showDateDialog = false)}>
+				{i18n.t('common.cancel')}
+			</Button>
+			<Button onclick={confirmCustomDate}>
+				{i18n.t('common.save')}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

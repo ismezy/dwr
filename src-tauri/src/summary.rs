@@ -167,10 +167,10 @@ pub async fn generate_summary_report(
         format_summary_report(&date, &projects_commits)
     };
 
-    let dir = summary_dir(work_dir.as_deref(), app_handle.clone())?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create summary dir: {}", e))?;
-
     let path = summary_path(&date, work_dir.as_deref(), app_handle.clone())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create summary dir: {}", e))?;
+    }
     std::fs::write(&path, &content).map_err(|e| format!("failed to write summary report: {}", e))?;
 
     Ok(SummaryReport { date, content })
@@ -335,6 +335,9 @@ pub fn save_summary_report(
     work_dir: Option<String>,
 ) -> Result<(), String> {
     let path = summary_path(&date, work_dir.as_deref(), app_handle)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create summary dir: {}", e))?;
+    }
     std::fs::write(&path, content).map_err(|e| format!("failed to save summary report: {}", e))
 }
 
