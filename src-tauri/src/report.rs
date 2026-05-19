@@ -204,6 +204,59 @@ pub fn next_date(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
     }
 }
 
+pub fn prev_date(year: i32, month: u32, day: u32) -> (i32, u32, u32) {
+    if day > 1 {
+        (year, month, day - 1)
+    } else if month > 1 {
+        let dim = days_in_month(year, month - 1);
+        (year, month - 1, dim)
+    } else {
+        (year - 1, 12, 31)
+    }
+}
+
+fn weekday(year: i32, month: u32, day: u32) -> u32 {
+    // Zeller's congruence for Gregorian calendar
+    // Returns 1=Monday, ..., 7=Sunday
+    let mut y = year;
+    let mut m = month as i32;
+    if m < 3 {
+        m += 12;
+        y -= 1;
+    }
+    let q = day as i32;
+    let k = y % 100;
+    let j = y / 100;
+    let mut h = (q + (13 * (m + 1)) / 5 + k + k / 4 + j / 4 - 2 * j) % 7;
+    if h < 0 { h += 7; }
+    // h: 0=Saturday, 1=Sunday, 2=Monday, ..., 6=Friday
+    match h {
+        2 => 1, // Monday
+        3 => 2, // Tuesday
+        4 => 3, // Wednesday
+        5 => 4, // Thursday
+        6 => 5, // Friday
+        0 => 6, // Saturday
+        1 => 7, // Sunday
+        _ => 1,
+    }
+}
+
+pub fn get_week_start(date: &str, week_start_day: i32) -> Result<String, String> {
+    let (y, m, d) = parse_date(date)?;
+    let wd = weekday(y, m, d); // 1=Monday, ..., 7=Sunday
+    let target = week_start_day as u32;
+    let mut diff = wd as i32 - target as i32;
+    if diff < 0 { diff += 7; }
+    let mut cy = y;
+    let mut cm = m;
+    let mut cd = d;
+    for _ in 0..diff {
+        (cy, cm, cd) = prev_date(cy, cm, cd);
+    }
+    Ok(format_date(cy, cm, cd))
+}
+
 pub fn parse_date(date: &str) -> Result<(i32, u32, u32), String> {
     let parts: Vec<&str> = date.split('-').collect();
     if parts.len() != 3 {
@@ -246,6 +299,76 @@ pub fn collect_weekly_daily_reports(
     reports
 }
 
+fn collect_this_week_daily_reports(
+    project_path: &str,
+    project_name: &str,
+    date: &str,
+    week_start_day: i32,
+    work_dir: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut reports = Vec::new();
+    let Ok(week_start) = get_week_start(date, week_start_day) else { return reports; };
+    let Ok((mut y, mut m, mut d)) = parse_date(&week_start) else { return reports; };
+    let Ok((end_y, end_m, end_d)) = parse_date(date) else { return reports; };
+
+    loop {
+        let date_str = format_date(y, m, d);
+        if date_str != date {
+            let path = report_path(project_path, project_name, &date_str, work_dir);
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                reports.push((date_str, content));
+            }
+        }
+        if y == end_y && m == end_m && d == end_d {
+            break;
+        }
+        (y, m, d) = next_date(y, m, d);
+    }
+
+    reports
+}
+
+fn collect_recent_weekly_reports(
+    project_path: &str,
+    project_name: &str,
+    week_start: &str,
+    work_dir: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut reports = Vec::new();
+    let Ok((mut y, mut m, mut d)) = parse_date(week_start) else { return reports; };
+
+    for _ in 0..3 {
+        // Go back 7 days to get previous week start
+        for _ in 0..7 {
+            (y, m, d) = prev_date(y, m, d);
+        }
+        let prev_week_start = format_date(y, m, d);
+        // Go forward 6 days to get previous week end
+        let (mut ey, mut em, mut ed) = (y, m, d);
+        for _ in 0..6 {
+            (ey, em, ed) = next_date(ey, em, ed);
+        }
+        let prev_week_end = format_date(ey, em, ed);
+
+        let dir = weekly_report_dir(project_path, project_name, work_dir).join(format!("{}", y));
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
+                    if let Ok(content) = read_file_with_encoding(&path) {
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                        if stem.starts_with(&prev_week_start) {
+                            reports.push((format!("{} ~ {}", prev_week_start, prev_week_end), content));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    reports
+}
+
 fn format_weekly_report(week_start: &str, week_end: &str, project_name: &str, daily_reports: &[(String, String)]) -> String {
     let mut lines = Vec::new();
     lines.push(format!("# {} ~ {} 周报 - {}", week_start, week_end, project_name));
@@ -278,13 +401,20 @@ fn build_commits_text(commits: &[CommitInfo]) -> String {
     text
 }
 
-fn build_ai_prompt(date: &str, project_name: &str, commits: &[CommitInfo], template: Option<&str>) -> String {
+fn build_ai_prompt(date: &str, project_name: &str, commits: &[CommitInfo], recent_reports: &[(String, String)], template: Option<&str>) -> String {
     let commits_text = build_commits_text(commits);
 
     let mut prompt = format!(
         "请根据以下 Git 提交记录生成一份工作日报。\n\n项目：{}\n日期：{}\n\n提交记录：\n{}",
         project_name, date, commits_text
     );
+
+    if !recent_reports.is_empty() {
+        prompt.push_str("\n\n本周已生成的日报（供参考，避免重复描述同一任务）：\n");
+        for (report_date, content) in recent_reports {
+            prompt.push_str(&format!("## {}\n{}\n", report_date, content));
+        }
+    }
 
     if let Some(tpl) = template {
         prompt.push('\n');
@@ -297,10 +427,14 @@ fn build_ai_prompt(date: &str, project_name: &str, commits: &[CommitInfo], templ
         prompt.push_str("- 输出 Markdown 格式，只输出日报正文，不需要标题以外的额外说明\n");
     }
 
+    if !recent_reports.is_empty() {
+        prompt.push_str("\n注意：请对比本周已生成的日报内容，如果今天的工作任务在之前的日报中已经描述过（例如昨天写了\"新增完成A功能\"，今天只是继续完善或修复bug），请避免重复描述同一任务，只说明今天的增量进展。\n");
+    }
+
     prompt
 }
 
-fn build_weekly_ai_prompt(week_start: &str, week_end: &str, project_name: &str, daily_reports: &[(String, String)], template: Option<&str>) -> String {
+fn build_weekly_ai_prompt(week_start: &str, week_end: &str, project_name: &str, daily_reports: &[(String, String)], recent_weekly_reports: &[(String, String)], template: Option<&str>) -> String {
     let mut daily_text = String::new();
     for (date, content) in daily_reports {
         daily_text.push_str(&format!("\n## {}\n{}", date, content));
@@ -311,6 +445,13 @@ fn build_weekly_ai_prompt(week_start: &str, week_end: &str, project_name: &str, 
         project_name, week_start, week_end, daily_text
     );
 
+    if !recent_weekly_reports.is_empty() {
+        prompt.push_str("\n\n前3周的周报（供参考，避免与之前的工作内容重复描述）：\n");
+        for (period, content) in recent_weekly_reports {
+            prompt.push_str(&format!("## {}周报\n{}\n", period, content));
+        }
+    }
+
     if let Some(tpl) = template {
         prompt.push('\n');
         prompt.push_str(tpl.trim());
@@ -320,6 +461,10 @@ fn build_weekly_ai_prompt(week_start: &str, week_end: &str, project_name: &str, 
         prompt.push_str("- 基于已有的日报内容，进行概括和汇总，不要遗漏重要工作\n");
         prompt.push_str("- 语言简洁专业\n");
         prompt.push_str("- 输出 Markdown 格式，只输出周报正文，不需要标题以外的额外说明\n");
+    }
+
+    if !recent_weekly_reports.is_empty() {
+        prompt.push_str("\n注意：请对比前3周的周报内容，如果本周的工作任务在之前几周的周报中已经描述过，请避免重复描述同一任务，只说明本周的增量进展或新进展。\n");
     }
 
     prompt
@@ -340,13 +485,16 @@ pub async fn generate_daily_report(
 
     let configs = crate::config::get_configs(state)?;
 
+    let week_start_day = configs.week_start_day.unwrap_or(1);
+    let recent_reports = collect_this_week_daily_reports(&project_path, &project_name, &date, week_start_day, work_dir.as_deref());
+
     let content = if let (Some(provider), Some(api_key), Some(model)) =
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if commits.is_empty() {
             format_report(&date, &project_name, &commits)
         } else {
-            let prompt = build_ai_prompt(&date, &project_name, &commits, configs.ai_template.as_deref());
+            let prompt = build_ai_prompt(&date, &project_name, &commits, &recent_reports, configs.ai_template.as_deref());
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
@@ -374,6 +522,7 @@ pub async fn generate_weekly_report(
     work_dir: Option<String>,
 ) -> Result<DailyReport, String> {
     let daily_reports = collect_weekly_daily_reports(&project_path, &project_name, &week_start, &week_end, work_dir.as_deref());
+    let recent_weekly_reports = collect_recent_weekly_reports(&project_path, &project_name, &week_start, work_dir.as_deref());
 
     let configs = crate::config::get_configs(state)?;
 
@@ -383,7 +532,7 @@ pub async fn generate_weekly_report(
         if daily_reports.is_empty() {
             format_weekly_report(&week_start, &week_end, &project_name, &daily_reports)
         } else {
-            let prompt = build_weekly_ai_prompt(&week_start, &week_end, &project_name, &daily_reports, configs.ai_template.as_deref());
+            let prompt = build_weekly_ai_prompt(&week_start, &week_end, &project_name, &daily_reports, &recent_weekly_reports, configs.ai_template.as_deref());
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }

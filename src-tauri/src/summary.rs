@@ -5,7 +5,7 @@ use tauri::Manager;
 use crate::ai;
 use crate::config::ConfigDb;
 use crate::project::{DbConnection, Project};
-use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding};
+use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding, get_week_start, parse_date, format_date, next_date, prev_date};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryReport {
@@ -47,7 +47,7 @@ fn weekly_summary_path(week_start: &str, week_end: &str, work_dir: Option<&str>,
     Ok(weekly_summary_dir(work_dir, app_handle)?.join(year).join(format!("{}至{}.md", week_start, week_end)))
 }
 
-fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo>)], template: Option<&str>) -> String {
+fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo>)], recent_reports: &[(String, String)], template: Option<&str>) -> String {
     let mut prompt = format!(
         "请根据以下各项目的 Git 提交记录生成一份工作汇总日报。\n\n日期：{}\n\n",
         date
@@ -70,6 +70,13 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
         prompt.push('\n');
     }
 
+    if !recent_reports.is_empty() {
+        prompt.push_str("本周已生成的汇总日报（供参考，避免重复描述同一任务）：\n");
+        for (report_date, content) in recent_reports {
+            prompt.push_str(&format!("## {}\n{}\n", report_date, content));
+        }
+    }
+
     if let Some(tpl) = template {
         prompt.push_str(tpl.trim());
     } else {
@@ -80,8 +87,10 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
         prompt.push_str("- 输出 Markdown 格式，只输出日报正文，不需要标题以外的额外说明\n");
     }
 
-    // 如果所有项目都没有提交，在 prompt 里标注一下，但 AI 仍然会被调用（如果配置了）
-    // 不过我们在调用前已经检查了 has_commits
+    if !recent_reports.is_empty() {
+        prompt.push_str("\n注意：请对比本周已生成的汇总日报内容，如果今天的工作任务在之前的日报中已经描述过，请避免重复描述同一任务，只说明今天的增量进展。\n");
+    }
+
     if !has_commits {
         prompt.push_str("\n注意：今天所有项目均无提交记录，请生成一份说明今日无工作记录的简短日报。\n");
     }
@@ -89,7 +98,7 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
     prompt
 }
 
-fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)], template: Option<&str>) -> String {
+fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)], recent_weekly_reports: &[(String, String)], template: Option<&str>) -> String {
     let mut prompt = format!(
         "请根据以下各项目本周的日报内容，汇总生成一份工作周报。\n\n周期：{} ~ {}\n\n",
         week_start, week_end
@@ -110,6 +119,13 @@ fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_report
         prompt.push('\n');
     }
 
+    if !recent_weekly_reports.is_empty() {
+        prompt.push_str("前3周的汇总周报（供参考，避免与之前的工作内容重复描述）：\n");
+        for (period, content) in recent_weekly_reports {
+            prompt.push_str(&format!("## {}汇总周报\n{}\n", period, content));
+        }
+    }
+
     if let Some(tpl) = template {
         prompt.push_str(tpl.trim());
     } else {
@@ -121,11 +137,82 @@ fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_report
         prompt.push_str("- 输出 Markdown 格式，只输出周报正文，不需要标题以外的额外说明\n");
     }
 
+    if !recent_weekly_reports.is_empty() {
+        prompt.push_str("\n注意：请对比前3周的汇总周报内容，如果本周的工作任务在之前几周的周报中已经描述过，请避免重复描述同一任务，只说明本周的增量进展或新进展。\n");
+    }
+
     if !has_any {
         prompt.push_str("\n注意：本周所有项目均无日报内容，请生成一份说明本周无工作记录的简短周报。\n");
     }
 
     prompt
+}
+
+fn collect_this_week_summary_reports(
+    app_handle: tauri::AppHandle,
+    date: &str,
+    week_start_day: i32,
+    work_dir: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut reports = Vec::new();
+    let Ok(week_start) = get_week_start(date, week_start_day) else { return reports; };
+    let Ok((mut y, mut m, mut d)) = parse_date(&week_start) else { return reports; };
+    let Ok((end_y, end_m, end_d)) = parse_date(date) else { return reports; };
+
+    loop {
+        let date_str = format_date(y, m, d);
+        if date_str != date {
+            if let Ok(path) = summary_path(&date_str, work_dir, app_handle.clone()) {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    reports.push((date_str, content));
+                }
+            }
+        }
+        if y == end_y && m == end_m && d == end_d {
+            break;
+        }
+        (y, m, d) = next_date(y, m, d);
+    }
+
+    reports
+}
+
+fn collect_recent_weekly_summary_reports(
+    app_handle: tauri::AppHandle,
+    week_start: &str,
+    work_dir: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut reports = Vec::new();
+    let Ok((mut y, mut m, mut d)) = parse_date(week_start) else { return reports; };
+
+    for _ in 0..3 {
+        for _ in 0..7 {
+            (y, m, d) = prev_date(y, m, d);
+        }
+        let prev_week_start = format_date(y, m, d);
+        let (mut ey, mut em, mut ed) = (y, m, d);
+        for _ in 0..6 {
+            (ey, em, ed) = next_date(ey, em, ed);
+        }
+        let prev_week_end = format_date(ey, em, ed);
+
+        let dir = weekly_summary_dir(work_dir, app_handle.clone()).unwrap_or_default().join(format!("{}", y));
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
+                    if let Ok(content) = read_file_with_encoding(&path) {
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                        if stem.starts_with(&prev_week_start) {
+                            reports.push((format!("{} ~ {}", prev_week_start, prev_week_end), content));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    reports
 }
 
 #[tauri::command]
@@ -153,13 +240,16 @@ pub async fn generate_summary_report(
 
     let configs = crate::config::get_configs(config_state)?;
 
+    let week_start_day = configs.week_start_day.unwrap_or(1);
+    let recent_reports = collect_this_week_summary_reports(app_handle.clone(), &date, week_start_day, work_dir.as_deref());
+
     let content = if let (Some(provider), Some(api_key), Some(model)) =
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if total_commits == 0 {
             format_summary_report(&date, &projects_commits)
         } else {
-            let prompt = build_summary_prompt(&date, &projects_commits, configs.ai_template.as_deref());
+            let prompt = build_summary_prompt(&date, &projects_commits, &recent_reports, configs.ai_template.as_deref());
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
@@ -249,13 +339,15 @@ pub async fn generate_weekly_summary_report(
 
     let configs = crate::config::get_configs(config_state)?;
 
+    let recent_weekly_reports = collect_recent_weekly_summary_reports(app_handle.clone(), &week_start, work_dir.as_deref());
+
     let content = if let (Some(provider), Some(api_key), Some(model)) =
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if total_reports == 0 {
             format_weekly_summary_report(&week_start, &week_end, &projects_reports)
         } else {
-            let prompt = build_weekly_summary_prompt(&week_start, &week_end, &projects_reports, configs.ai_template.as_deref());
+            let prompt = build_weekly_summary_prompt(&week_start, &week_end, &projects_reports, &recent_weekly_reports, configs.ai_template.as_deref());
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
