@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { projectsStore } from '$lib/stores/projects.svelte';
 	import { configStore } from '$lib/stores/config.svelte';
-	import { reportsStore } from '$lib/stores/reports.svelte';
+	import { reportsStore, getWeekRange } from '$lib/stores/reports.svelte';
 	import { i18n } from '$lib/i18n';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
@@ -104,10 +104,17 @@
 			return;
 		}
 
+		let weekEnd: string | undefined;
+		if (reportsStore.reportPeriod === 'weekly') {
+			const range = getWeekRange(currentDate()!, configStore.configs.week_start_day ?? 1);
+			weekEnd = range.end;
+		}
+
 		if (isSummaryActive()) {
 			await reportsStore.generateSummaryReport(
 				reportsStore.summarySelectedDate!,
-				configStore.configs.work_dir
+				configStore.configs.work_dir,
+				weekEnd
 			);
 		} else {
 			const gitUser = projectsStore.resolveGitUserName(project);
@@ -116,7 +123,8 @@
 				project.name,
 				gitUser,
 				reportsStore.selectedDate!,
-				configStore.configs.work_dir
+				configStore.configs.work_dir,
+				weekEnd
 			);
 		}
 		viewMode = 'preview';
@@ -140,9 +148,9 @@
 			<div class="flex items-center justify-between px-6 pt-4 pb-2 shrink-0 border-b">
 				<div class="text-2xl font-bold">
 					{#if isSummaryActive()}
-						{i18n.t('dailyReport.summaryTitle')}
+						{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.summaryTitleWeekly') : i18n.t('dailyReport.summaryTitle')}
 					{:else}
-						{projectsStore.selected?.name ?? ''}
+						{projectsStore.selected?.name ?? ''}{reportsStore.reportPeriod === 'weekly' ? '周报' : '日报'}
 					{/if}
 				</div>
 				<div class="flex items-center gap-2">
@@ -283,7 +291,7 @@
 
 				<div class="rounded-lg border bg-card p-6">
 					<div class="text-sm text-muted-foreground text-center">
-						{i18n.t('content.placeholder')}
+						{reportsStore.reportPeriod === 'weekly' ? i18n.t('content.placeholderWeekly') : i18n.t('content.placeholder')}
 					</div>
 				</div>
 			</div>

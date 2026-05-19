@@ -32,14 +32,22 @@ pub fn run() {
             config::get_configs,
             config::save_configs,
             report::generate_daily_report,
+            report::generate_weekly_report,
             report::get_report_list,
+            report::get_weekly_report_list,
             report::read_report,
+            report::read_weekly_report,
             report::save_report,
+            report::save_weekly_report,
             report::polish_report,
             summary::generate_summary_report,
+            summary::generate_weekly_summary_report,
             summary::get_summary_report_list,
+            summary::get_weekly_summary_report_list,
             summary::read_summary_report,
+            summary::read_weekly_summary_report,
             summary::save_summary_report,
+            summary::save_weekly_summary_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

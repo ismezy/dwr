@@ -16,6 +16,7 @@
 	let gitUserName = $state('');
 	let lang = $state<Locale>('zh');
 	let theme = $state<Theme>('system');
+	let weekStartDay = $state<number>(1);
 	let aiProvider = $state<string>('');
 	let aiApiKey = $state('');
 	let aiBaseUrl = $state('');
@@ -33,6 +34,7 @@
 		gitUserName = configStore.configs.git_user_name ?? '';
 		lang = configStore.configs.lang ?? 'zh';
 		theme = configStore.configs.theme ?? 'system';
+		weekStartDay = configStore.configs.week_start_day ?? 1;
 		aiProvider = configStore.configs.ai_provider ?? '';
 		aiApiKey = configStore.configs.ai_api_key ?? '';
 		aiBaseUrl = configStore.configs.ai_base_url ?? '';
@@ -59,6 +61,7 @@
 			git_user_name: gitUserName.trim() || undefined,
 			lang,
 			theme,
+			week_start_day: weekStartDay,
 			ai_provider: aiProvider || undefined,
 			ai_api_key: aiApiKey.trim() || undefined,
 			ai_base_url: aiProvider === 'custom' ? aiBaseUrl.trim() || undefined : undefined,
@@ -79,6 +82,16 @@
 		{ value: 'system' as Theme, label: i18n.t('config.theme.system') },
 	]);
 
+	const weekStartDayItems = $derived([
+		{ value: 1, label: i18n.t('config.weekStartDay.1') },
+		{ value: 2, label: i18n.t('config.weekStartDay.2') },
+		{ value: 3, label: i18n.t('config.weekStartDay.3') },
+		{ value: 4, label: i18n.t('config.weekStartDay.4') },
+		{ value: 5, label: i18n.t('config.weekStartDay.5') },
+		{ value: 6, label: i18n.t('config.weekStartDay.6') },
+		{ value: 7, label: i18n.t('config.weekStartDay.7') },
+	]);
+
 	const providerItems = $derived([
 		{ value: '', label: i18n.t('common.optional') },
 		{ value: 'openai', label: i18n.t('config.ai.provider.openai') },
@@ -90,6 +103,7 @@
 
 	const selectedLangLabel = $derived(langItems.find((i) => i.value === lang)?.label ?? '');
 	const selectedThemeLabel = $derived(themeItems.find((i) => i.value === theme)?.label ?? '');
+	const selectedWeekStartDayLabel = $derived(weekStartDayItems.find((i) => i.value === weekStartDay)?.label ?? '');
 	const selectedProviderLabel = $derived(providerItems.find((i) => i.value === aiProvider)?.label ?? '');
 
 	const staticModelMap: Record<string, { id: string; label: string }[]> = {
@@ -231,6 +245,22 @@
 							</Select.Trigger>
 							<Select.Content>
 								{#each themeItems as item (item.value)}
+									<Select.Item value={item.value} label={item.label}>
+										{item.label}
+									</Select.Item>
+								{/each}
+							</Select.Content>
+						</Select.Root>
+					</div>
+
+					<div class="grid gap-2">
+						<Label>{i18n.t('config.weekStartDay')}</Label>
+						<Select.Root type="single" bind:value={weekStartDay}>
+							<Select.Trigger class="w-full">
+								{selectedWeekStartDayLabel}
+							</Select.Trigger>
+							<Select.Content>
+								{#each weekStartDayItems as item (item.value)}
 									<Select.Item value={item.value} label={item.label}>
 										{item.label}
 									</Select.Item>

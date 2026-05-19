@@ -9,6 +9,7 @@ export interface ConfigData {
 	git_user_name?: string;
 	lang?: Locale;
 	theme?: Theme;
+	week_start_day?: number;
 	ai_provider?: string;
 	ai_api_key?: string;
 	ai_base_url?: string;

@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { projectsStore } from '$lib/stores/projects.svelte';
 	import { configStore } from '$lib/stores/config.svelte';
-	import { reportsStore } from '$lib/stores/reports.svelte';
+	import { reportsStore, getWeekRange } from '$lib/stores/reports.svelte';
 	import { i18n } from '$lib/i18n';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
@@ -15,6 +15,14 @@
 	function getTodayStr() {
 		const d = new Date();
 		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+
+	function getReportDate(): { date: string; weekEnd?: string } {
+		if (reportsStore.reportPeriod === 'weekly') {
+			const { start, end } = getWeekRange(getTodayStr(), configStore.configs.week_start_day ?? 1);
+			return { date: start, weekEnd: end };
+		}
+		return { date: getTodayStr() };
 	}
 
 	function isAiConfigured(): boolean {
@@ -31,13 +39,15 @@
 			return;
 		}
 
+		const { date, weekEnd } = getReportDate();
 		const gitUser = projectsStore.resolveGitUserName(project);
 		await reportsStore.generateReport(
 			project.path,
 			project.name,
 			gitUser,
-			getTodayStr(),
-			configStore.configs.work_dir
+			date,
+			configStore.configs.work_dir,
+			weekEnd
 		);
 	}
 
@@ -46,9 +56,12 @@
 			showAiAlert = true;
 			return;
 		}
+
+		const { date, weekEnd } = getReportDate();
 		await reportsStore.generateSummaryReport(
-			getTodayStr(),
-			configStore.configs.work_dir
+			date,
+			configStore.configs.work_dir,
+			weekEnd
 		);
 	}
 
@@ -58,19 +71,22 @@
 			return;
 		}
 		const project = projectsStore.selected;
+		const { date, weekEnd } = getReportDate();
 		if (project) {
 			const gitUser = projectsStore.resolveGitUserName(project);
 			await reportsStore.generateReport(
 				project.path,
 				project.name,
 				gitUser,
-				getTodayStr(),
-				configStore.configs.work_dir
+				date,
+				configStore.configs.work_dir,
+				weekEnd
 			);
 		}
 		await reportsStore.generateSummaryReport(
-			getTodayStr(),
-			configStore.configs.work_dir
+			date,
+			configStore.configs.work_dir,
+			weekEnd
 		);
 	}
 
@@ -105,8 +121,8 @@
 		await reportsStore.readSummaryReport(date, configStore.configs.work_dir);
 	}
 
-	function setMode(mode: 'per-project' | 'summary' | 'all') {
-		reportsStore.setMode(mode);
+	function setReportPeriod(period: 'daily' | 'weekly') {
+		reportsStore.setReportPeriod(period);
 	}
 
 	$effect(() => {
@@ -122,13 +138,40 @@
 			reportsStore.loadSummaryReports(configStore.configs.work_dir);
 		}
 	});
+
+	$effect(() => {
+		// Reload when report period changes
+		const period = reportsStore.reportPeriod;
+		const project = projectsStore.selected;
+		if (project) {
+			reportsStore.loadReports(project.path, project.name, configStore.configs.work_dir);
+		}
+		if (reportsStore.mode === 'summary' || reportsStore.mode === 'all') {
+			reportsStore.loadSummaryReports(configStore.configs.work_dir);
+		}
+	});
 </script>
 
 <div class="flex flex-col h-full w-full bg-muted/30">
 	<div class="flex items-center justify-between px-3 py-3 border-b shrink-0 gap-2">
 		<div class="flex items-center gap-2 min-w-0">
 			<CalendarDays class="h-4 w-4 text-muted-foreground shrink-0" />
-			<span class="text-sm font-semibold truncate">{i18n.t('dailyReport.title')}</span>
+			<!-- Report period switcher -->
+			<div class="flex rounded-md border bg-background overflow-hidden">
+				{#each [{k: 'daily' as const, l: i18n.t('dailyReport.daily')}, {k: 'weekly' as const, l: i18n.t('dailyReport.weekly')}] as item}
+					<button
+						class={cn(
+							'px-2 py-1 text-xs font-medium transition-colors',
+							reportsStore.reportPeriod === item.k
+								? 'bg-accent text-accent-foreground'
+								: 'hover:bg-accent/50 text-muted-foreground'
+						)}
+						onclick={() => setReportPeriod(item.k)}
+					>
+						{item.l}
+					</button>
+				{/each}
+			</div>
 		</div>
 		{#if projectsStore.selected}
 			<Button
@@ -137,35 +180,16 @@
 				class="h-7 px-2 text-xs shrink-0"
 				onclick={handleGenerate}
 				disabled={reportsStore.generating || reportsStore.summaryGenerating}
-				title={i18n.t('dailyReport.generate')}
+				title={reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.generateWeekly') : i18n.t('dailyReport.generate')}
 			>
 				{#if reportsStore.generating || reportsStore.summaryGenerating}
 					<Loader class="h-3 w-3 mr-1 animate-spin" />
 				{:else}
 					<Sparkles class="h-3 w-3 mr-1" />
 				{/if}
-				{reportsStore.generating || reportsStore.summaryGenerating ? i18n.t('dailyReport.generating') : i18n.t('dailyReport.generate')}
+				{reportsStore.generating || reportsStore.summaryGenerating ? i18n.t('dailyReport.generating') : (reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.generateWeekly') : i18n.t('dailyReport.generate'))}
 			</Button>
 		{/if}
-	</div>
-
-	<!-- Mode switcher -->
-	<div class="px-3 py-2 border-b shrink-0">
-		<div class="flex rounded-md border bg-background overflow-hidden">
-			{#each [{k: 'per-project' as const, l: i18n.t('dailyReport.modePerProject')}, {k: 'summary' as const, l: i18n.t('dailyReport.modeSummary')}, {k: 'all' as const, l: i18n.t('dailyReport.modeAll')}] as item}
-				<button
-					class={cn(
-						'flex-1 px-2 py-1.5 text-xs font-medium transition-colors',
-						reportsStore.mode === item.k
-							? 'bg-accent text-accent-foreground'
-							: 'hover:bg-accent/50 text-muted-foreground'
-					)}
-					onclick={() => setMode(item.k)}
-				>
-					{item.l}
-				</button>
-			{/each}
-		</div>
 	</div>
 
 	{#if projectsStore.selected || reportsStore.mode === 'summary'}
@@ -176,7 +200,7 @@
 				{#if reportsStore.mode === 'summary' || reportsStore.mode === 'all'}
 					<div>
 						<div class="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-							{i18n.t('dailyReport.summarySection')}
+							{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.summarySectionWeekly') : i18n.t('dailyReport.summarySection')}
 						</div>
 						<div class="space-y-1 mt-1">
 							{#each reportsStore.summaryReports as report (report.date)}
@@ -196,7 +220,7 @@
 								</button>
 							{:else}
 								<div class="text-xs text-muted-foreground text-center py-4 px-2">
-									{i18n.t('dailyReport.emptyHint')}
+									{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.emptyHintWeekly') : i18n.t('dailyReport.emptyHint')}
 								</div>
 							{/each}
 						</div>
@@ -230,7 +254,7 @@
 									</button>
 								{:else}
 									<div class="text-xs text-muted-foreground text-center py-4 px-2">
-										{i18n.t('dailyReport.emptyHint')}
+										{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.emptyHintWeekly') : i18n.t('dailyReport.emptyHint')}
 									</div>
 								{/each}
 							</div>
@@ -238,7 +262,7 @@
 					{:else if reportsStore.mode === 'per-project'}
 						<div class="flex-1 flex items-center justify-center">
 							<div class="text-sm text-muted-foreground text-center px-4">
-								{i18n.t('dailyReport.emptyHint')}
+								{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.emptyHintWeekly') : i18n.t('dailyReport.emptyHint')}
 							</div>
 						</div>
 					{/if}
@@ -248,7 +272,7 @@
 	{:else}
 		<div class="flex-1 flex items-center justify-center">
 			<div class="text-sm text-muted-foreground text-center px-4">
-				{i18n.t('dailyReport.emptyHint')}
+				{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.emptyHintWeekly') : i18n.t('dailyReport.emptyHint')}
 			</div>
 		</div>
 	{/if}
