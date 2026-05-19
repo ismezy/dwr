@@ -20,6 +20,7 @@
 	let customCalendarValue = $state<DateValue | undefined>(undefined);
 	let expandedYears = $state<Set<string>>(new Set());
 	let expandedMonths = $state<Set<string>>(new Set());
+	let generateMenuEl = $state<HTMLDivElement | null>(null);
 
 	function calendarValueToStr(value: DateValue | undefined): string {
 		if (!value) return '';
@@ -311,11 +312,12 @@
 
 	$effect(() => {
 		if (!showGenerateMenu) return;
-		function handleDocClick() {
+		function handleDocClick(e: MouseEvent) {
+			if (generateMenuEl?.contains(e.target as Node)) return;
 			showGenerateMenu = false;
 		}
 		setTimeout(() => {
-			document.addEventListener('click', handleDocClick, { once: true });
+			document.addEventListener('click', handleDocClick);
 		}, 10);
 		return () => {
 			document.removeEventListener('click', handleDocClick);
@@ -433,7 +435,8 @@
 
 	{#if projectsStore.selected || reportsStore.mode === 'summary'}
 		{@const isGenerating = reportsStore.generating || reportsStore.summaryGenerating}
-		<ScrollArea class="flex-1 {isGenerating ? 'opacity-50 pointer-events-none' : ''}">
+		<div class="flex-1 min-h-0 overflow-hidden">
+			<ScrollArea class="h-full {isGenerating ? 'opacity-50 pointer-events-none' : ''}">
 			<div class="p-2 space-y-4">
 				<!-- Summary section (visible in summary / all modes) -->
 				{#if reportsStore.mode === 'summary' || reportsStore.mode === 'all'}
@@ -513,7 +516,7 @@
 																<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 																<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 															{/if}
-															<span>{monthGroup.month}月</span>
+															<span>{yearGroup.year}年{monthGroup.month}月</span>
 														</button>
 														{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
 															<div class="pl-5 space-y-0.5">
@@ -629,7 +632,7 @@
 																	<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 																	<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 																{/if}
-																<span>{monthGroup.month}月</span>
+																<span>{yearGroup.year}年{monthGroup.month}月</span>
 															</button>
 															{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
 																<div class="pl-5 space-y-0.5">
@@ -672,6 +675,7 @@
 				{/if}
 			</div>
 		</ScrollArea>
+		</div>
 	{:else}
 		<div class="flex-1 flex items-center justify-center">
 			<div class="text-sm text-muted-foreground text-center px-4">

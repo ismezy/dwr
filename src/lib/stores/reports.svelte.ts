@@ -118,6 +118,8 @@ function createReportsStore() {
 		date: string,
 		workDir?: string
 	) {
+		selectedDate = date;
+		summarySelectedDate = null;
 		try {
 			if (reportPeriod === 'weekly') {
 				content = await invoke<string>('read_weekly_report', {
@@ -134,8 +136,6 @@ function createReportsStore() {
 					workDir,
 				});
 			}
-			selectedDate = date;
-			summarySelectedDate = null;
 		} catch (e) {
 			console.error('failed to read report:', e);
 			content = '';
@@ -199,6 +199,8 @@ function createReportsStore() {
 	}
 
 	async function readSummaryReport(date: string, workDir?: string) {
+		summarySelectedDate = date;
+		selectedDate = null;
 		try {
 			if (reportPeriod === 'weekly') {
 				summaryContent = await invoke<string>('read_weekly_summary_report', {
@@ -211,8 +213,6 @@ function createReportsStore() {
 					workDir,
 				});
 			}
-			summarySelectedDate = date;
-			selectedDate = null;
 		} catch (e) {
 			console.error('failed to read summary report:', e);
 			summaryContent = '';

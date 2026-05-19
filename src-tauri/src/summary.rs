@@ -5,7 +5,7 @@ use tauri::Manager;
 use crate::ai;
 use crate::config::ConfigDb;
 use crate::project::{DbConnection, Project};
-use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports};
+use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryReport {
@@ -290,6 +290,7 @@ pub fn get_summary_report_list(
         if !year_path.is_dir() { continue; }
         let year_name = year_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         if year_name == "weekly" { continue; }
+        // Scan month subdirectories: year/month/*.md
         for month_entry in std::fs::read_dir(&year_path).map_err(|e| format!("failed to read dir: {}", e))? {
             let month_entry = month_entry.map_err(|e| format!("failed to read entry: {}", e))?;
             let month_path = month_entry.path();
@@ -297,12 +298,32 @@ pub fn get_summary_report_list(
             for file_entry in std::fs::read_dir(&month_path).map_err(|e| format!("failed to read dir: {}", e))? {
                 let file_entry = file_entry.map_err(|e| format!("failed to read entry: {}", e))?;
                 let path = file_entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
                     let date = path
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("")
                         .to_string();
+                    if is_valid_daily_filename(&date) {
+                        entries.push(SummaryReportMeta {
+                            date: date.clone(),
+                            path: path.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        // Also scan files directly under year directory (legacy structure)
+        for file_entry in std::fs::read_dir(&year_path).map_err(|e| format!("failed to read dir: {}", e))? {
+            let file_entry = file_entry.map_err(|e| format!("failed to read entry: {}", e))?;
+            let path = file_entry.path();
+            if path.is_file() && path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
+                let date = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if is_valid_daily_filename(&date) {
                     entries.push(SummaryReportMeta {
                         date: date.clone(),
                         path: path.to_string_lossy().to_string(),
@@ -322,11 +343,10 @@ pub fn read_summary_report(
     date: String,
     work_dir: Option<String>,
 ) -> Result<String, String> {
-    let path = summary_path(&date, work_dir.as_deref(), app_handle)?;
-    if !path.exists() {
-        return Err("report not found".to_string());
-    }
-    std::fs::read_to_string(&path).map_err(|e| format!("failed to read summary report: {}", e))
+    let base_dir = summary_dir(work_dir.as_deref(), app_handle)?;
+    let path = find_report_file(&base_dir, &date)
+        .ok_or_else(|| format!("summary report not found: {}/{}/{}.md (or legacy paths)", base_dir.display(), date.split('-').next().unwrap_or(""), date))?;
+    read_file_with_encoding(&path)
 }
 
 #[tauri::command]
@@ -362,16 +382,18 @@ pub fn get_weekly_summary_report_list(
         for file_entry in std::fs::read_dir(&year_path).map_err(|e| format!("failed to read dir: {}", e))? {
             let file_entry = file_entry.map_err(|e| format!("failed to read entry: {}", e))?;
             let path = file_entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("md") {
+            if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
                 let date = path
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_string();
-                entries.push(SummaryReportMeta {
-                    date: date.clone(),
-                    path: path.to_string_lossy().to_string(),
-                });
+                if is_valid_weekly_filename(&date) {
+                    entries.push(SummaryReportMeta {
+                        date: date.clone(),
+                        path: path.to_string_lossy().to_string(),
+                    });
+                }
             }
         }
     }
@@ -394,10 +416,10 @@ pub fn read_weekly_summary_report(
     for entry in std::fs::read_dir(&dir).map_err(|e| format!("failed to read dir: {}", e))? {
         let entry = entry.map_err(|e| format!("failed to read entry: {}", e))?;
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("md") {
+        if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             if stem.starts_with(&week_start) {
-                return std::fs::read_to_string(&path).map_err(|e| format!("failed to read weekly summary report: {}", e));
+                return read_file_with_encoding(&path);
             }
         }
     }

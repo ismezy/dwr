@@ -142,108 +142,108 @@
 		<span class="text-sm font-semibold">{i18n.t('content.title')}</span>
 	</div>
 
-	{#if projectsStore.selected || isSummaryActive()}
-		{#if currentDate() && currentContent()}
-			<!-- 固定标题栏 -->
-			<div class="flex items-center justify-between px-6 pt-4 pb-2 shrink-0 border-b">
-				<div class="text-2xl font-bold">
-					{#if isSummaryActive()}
-						{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.summaryTitleWeekly') : i18n.t('dailyReport.summaryTitle')}
-					{:else}
-						{projectsStore.selected?.name ?? ''}{reportsStore.reportPeriod === 'weekly' ? '周报' : '日报'}
-					{/if}
-				</div>
-				<div class="flex items-center gap-2">
-					{#if viewMode === 'edit'}
-						<Button
-							variant="ghost"
-							size="sm"
-							class="h-8 px-2 text-xs"
-							onclick={cancelEdit}
-							disabled={saving || polishing}
-						>
-							{i18n.t('common.cancel')}
-						</Button>
-						<Button
-							variant="secondary"
-							size="sm"
-							class="h-8 px-2 text-xs"
-							onclick={handlePolish}
-							disabled={saving || polishing}
-						>
-							{#if polishing}
-								<Loader class="h-3 w-3 mr-1 animate-spin" />
-							{:else}
-								<Wand2 class="h-3 w-3 mr-1" />
-							{/if}
-							{polishing ? i18n.t('content.polishing') : i18n.t('content.polish')}
-						</Button>
-						<Button
-							variant="default"
-							size="sm"
-							class="h-8 px-2 text-xs"
-							onclick={handleSave}
-							disabled={saving || polishing}
-						>
-							<Save class="h-3 w-3 mr-1" />
-							{saving ? i18n.t('common.saving') : i18n.t('common.save')}
-						</Button>
-					{:else}
-						<div class="flex rounded-md border bg-background overflow-hidden">
-							<button
-								class={cn(
-									'px-2 py-1.5 text-xs font-medium transition-colors flex items-center gap-1',
-									viewMode === 'preview'
-										? 'bg-accent text-accent-foreground'
-										: 'hover:bg-accent/50 text-muted-foreground'
-								)}
-								onclick={() => (viewMode = 'preview')}
-							>
-								<Eye class="h-3 w-3" />
-								{i18n.t('content.preview')}
-							</button>
-							<button
-								class={cn(
-									'px-2 py-1.5 text-xs font-medium transition-colors flex items-center gap-1',
-									viewMode === 'edit'
-										? 'bg-accent text-accent-foreground'
-										: 'hover:bg-accent/50 text-muted-foreground'
-								)}
-								onclick={startEdit}
-							>
-								<PenLine class="h-3 w-3" />
-								{i18n.t('content.edit')}
-							</button>
-						</div>
-						<Button
-							variant="outline"
-							size="sm"
-							class="h-8 px-2 text-xs"
-							onclick={handleRegenerate}
-							disabled={reportsStore.generating || reportsStore.summaryGenerating}
-							title={i18n.t('content.regenerate')}
-						>
-							{#if reportsStore.generating || reportsStore.summaryGenerating}
-								<Loader class="h-3 w-3 mr-1 animate-spin" />
-							{:else}
-								<RefreshCw class="h-3 w-3 mr-1" />
-							{/if}
-							{reportsStore.generating || reportsStore.summaryGenerating ? i18n.t('dailyReport.generating') : i18n.t('content.regenerate')}
-						</Button>
-					{/if}
-				</div>
-			</div>
-
-			<!-- 滚动内容区 -->
-			<div class="flex-1 overflow-y-auto relative px-6 pb-6">
-				{#if reportsStore.generating || reportsStore.summaryGenerating}
-					<div class="sticky top-0 inset-x-0 h-0 flex justify-center z-10 pointer-events-none">
-						<div class="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded-md bg-background/90 border shadow-sm pointer-events-auto">
-							<Loader class="h-4 w-4 animate-spin text-primary" />
-							<span class="text-sm text-muted-foreground">{i18n.t('dailyReport.generating')}</span>
-						</div>
-					</div>
+	{#if currentDate()}
+		<!-- 固定标题栏 -->
+		<div class="flex items-center justify-between px-6 pt-4 pb-2 shrink-0 border-b">
+			<div class="text-2xl font-bold">
+				{#if isSummaryActive()}
+					{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.summaryTitleWeekly') : i18n.t('dailyReport.summaryTitle')}
+				{:else}
+					{projectsStore.selected?.name ?? ''}{reportsStore.reportPeriod === 'weekly' ? '周报' : '日报'}
 				{/if}
+			</div>
+			<div class="flex items-center gap-2">
+				{#if viewMode === 'edit'}
+					<Button
+						variant="ghost"
+						size="sm"
+						class="h-8 px-2 text-xs"
+						onclick={cancelEdit}
+						disabled={saving || polishing}
+					>
+						{i18n.t('common.cancel')}
+					</Button>
+					<Button
+						variant="secondary"
+						size="sm"
+						class="h-8 px-2 text-xs"
+						onclick={handlePolish}
+						disabled={saving || polishing}
+					>
+						{#if polishing}
+							<Loader class="h-3 w-3 mr-1 animate-spin" />
+						{:else}
+							<Wand2 class="h-3 w-3 mr-1" />
+						{/if}
+						{polishing ? i18n.t('content.polishing') : i18n.t('content.polish')}
+					</Button>
+					<Button
+						variant="default"
+						size="sm"
+						class="h-8 px-2 text-xs"
+						onclick={handleSave}
+						disabled={saving || polishing}
+					>
+						<Save class="h-3 w-3 mr-1" />
+						{saving ? i18n.t('common.saving') : i18n.t('common.save')}
+					</Button>
+				{:else}
+					<div class="flex rounded-md border bg-background overflow-hidden">
+						<button
+							class={cn(
+								'px-2 py-1.5 text-xs font-medium transition-colors flex items-center gap-1',
+								viewMode === 'preview'
+									? 'bg-accent text-accent-foreground'
+									: 'hover:bg-accent/50 text-muted-foreground'
+							)}
+							onclick={() => (viewMode = 'preview')}
+						>
+							<Eye class="h-3 w-3" />
+							{i18n.t('content.preview')}
+						</button>
+						<button
+							class={cn(
+								'px-2 py-1.5 text-xs font-medium transition-colors flex items-center gap-1',
+								viewMode === 'edit'
+									? 'bg-accent text-accent-foreground'
+									: 'hover:bg-accent/50 text-muted-foreground'
+							)}
+							onclick={startEdit}
+						>
+							<PenLine class="h-3 w-3" />
+							{i18n.t('content.edit')}
+						</button>
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						class="h-8 px-2 text-xs"
+						onclick={handleRegenerate}
+						disabled={reportsStore.generating || reportsStore.summaryGenerating}
+						title={i18n.t('content.regenerate')}
+					>
+						{#if reportsStore.generating || reportsStore.summaryGenerating}
+							<Loader class="h-3 w-3 mr-1 animate-spin" />
+						{:else}
+							<RefreshCw class="h-3 w-3 mr-1" />
+						{/if}
+						{reportsStore.generating || reportsStore.summaryGenerating ? i18n.t('dailyReport.generating') : i18n.t('content.regenerate')}
+					</Button>
+				{/if}
+			</div>
+		</div>
+
+		<!-- 滚动内容区 -->
+		<div class="flex-1 overflow-y-auto relative px-6 pb-6">
+			{#if reportsStore.generating || reportsStore.summaryGenerating}
+				<div class="sticky top-0 inset-x-0 h-0 flex justify-center z-10 pointer-events-none">
+					<div class="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded-md bg-background/90 border shadow-sm pointer-events-auto">
+						<Loader class="h-4 w-4 animate-spin text-primary" />
+						<span class="text-sm text-muted-foreground">{i18n.t('dailyReport.generating')}</span>
+					</div>
+				</div>
+			{/if}
+			{#if currentContent()}
 				{#if viewMode === 'edit'}
 					<Textarea
 						bind:value={editContent}
@@ -254,48 +254,52 @@
 						{@html renderedMarkdown()}
 					</div>
 				{/if}
-			</div>
-		{:else}
-			<div class="flex-1 overflow-y-auto relative px-6 pb-6">
-				{#if projectsStore.selected}
-					<div class="text-2xl font-bold mb-2 mt-4">{projectsStore.selected.name}</div>
-
-					<div class="space-y-3 text-sm text-muted-foreground mb-6">
-						{#if projectsStore.selected.code}
-							<div class="flex items-center gap-2">
-								<Hash class="h-4 w-4" />
-								<span>{projectsStore.selected.code}</span>
-							</div>
-						{/if}
-						<div class="flex items-center gap-2">
-							<Folder class="h-4 w-4" />
-							<span class="truncate">{projectsStore.selected.path}</span>
-						</div>
-						<div class="flex items-center gap-2">
-							<User class="h-4 w-4" />
-							<span>
-								{i18n.t('config.gitUserName')}:
-								{#if projectsStore.selected.git_user_name}
-									{projectsStore.selected.git_user_name}
-									<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.project')})</span>
-								{:else if configStore.configs.git_user_name}
-									{configStore.configs.git_user_name}
-									<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.global')})</span>
-								{:else}
-									<span class="text-xs text-destructive">{i18n.t('content.gitUser.unconfigured')}</span>
-								{/if}
-							</span>
-						</div>
-					</div>
-				{/if}
-
-				<div class="rounded-lg border bg-card p-6">
+			{:else}
+				<div class="rounded-lg border bg-card p-6 mt-4">
 					<div class="text-sm text-muted-foreground text-center">
 						{reportsStore.reportPeriod === 'weekly' ? i18n.t('content.placeholderWeekly') : i18n.t('content.placeholder')}
 					</div>
 				</div>
+			{/if}
+		</div>
+	{:else if projectsStore.selected}
+		<div class="flex-1 overflow-y-auto relative px-6 pb-6">
+			<div class="text-2xl font-bold mb-2 mt-4">{projectsStore.selected.name}</div>
+
+			<div class="space-y-3 text-sm text-muted-foreground mb-6">
+				{#if projectsStore.selected.code}
+					<div class="flex items-center gap-2">
+						<Hash class="h-4 w-4" />
+						<span>{projectsStore.selected.code}</span>
+					</div>
+				{/if}
+				<div class="flex items-center gap-2">
+					<Folder class="h-4 w-4" />
+					<span class="truncate">{projectsStore.selected.path}</span>
+				</div>
+				<div class="flex items-center gap-2">
+					<User class="h-4 w-4" />
+					<span>
+						{i18n.t('config.gitUserName')}:
+						{#if projectsStore.selected.git_user_name}
+							{projectsStore.selected.git_user_name}
+							<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.project')})</span>
+						{:else if configStore.configs.git_user_name}
+							{configStore.configs.git_user_name}
+							<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.global')})</span>
+						{:else}
+							<span class="text-xs text-destructive">{i18n.t('content.gitUser.unconfigured')}</span>
+						{/if}
+					</span>
+				</div>
 			</div>
-		{/if}
+
+			<div class="rounded-lg border bg-card p-6">
+				<div class="text-sm text-muted-foreground text-center">
+					{reportsStore.reportPeriod === 'weekly' ? i18n.t('content.placeholderWeekly') : i18n.t('content.placeholder')}
+				</div>
+			</div>
+		</div>
 	{:else}
 		<div class="flex-1 flex items-center justify-center">
 			<div class="text-sm text-muted-foreground text-center px-4">

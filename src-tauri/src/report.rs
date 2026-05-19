@@ -49,6 +49,45 @@ fn weekly_report_path(project_path: &str, project_name: &str, week_start: &str, 
     weekly_report_dir(project_path, project_name, work_dir).join(year).join(format!("{}至{}.md", week_start, week_end))
 }
 
+pub fn is_valid_daily_filename(stem: &str) -> bool {
+    // YYYY-MM-DD
+    if stem.len() != 10 { return false; }
+    let bytes = stem.as_bytes();
+    bytes[4] == b'-' && bytes[7] == b'-'
+}
+
+pub fn is_valid_weekly_filename(stem: &str) -> bool {
+    // YYYY-MM-DD至YYYY-MM-DD
+    let parts: Vec<&str> = stem.split('至').collect();
+    if parts.len() != 2 { return false; }
+    is_valid_daily_filename(parts[0]) && is_valid_daily_filename(parts[1])
+}
+
+pub fn read_file_with_encoding(path: &std::path::Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("failed to read file: {}", e))?;
+    // Try UTF-8 first
+    if let Ok(s) = String::from_utf8(bytes.clone()) {
+        return Ok(s);
+    }
+    Err("file is not UTF-8 encoded. Please convert the file to UTF-8 (e.g. open in Notepad and Save As UTF-8)".to_string())
+}
+
+pub fn find_report_file(base_dir: &std::path::Path, date: &str) -> Option<std::path::PathBuf> {
+    let parts: Vec<&str> = date.split('-').collect();
+    let year = parts.get(0)?;
+    let month = parts.get(1)?;
+    // Standard path: {year}/{month}/{date}.md
+    let standard = base_dir.join(year).join(month).join(format!("{}.md", date));
+    if standard.exists() { return Some(standard); }
+    // Fallback: {year}/{date}.md
+    let fallback1 = base_dir.join(year).join(format!("{}.md", date));
+    if fallback1.exists() { return Some(fallback1); }
+    // Fallback: {date}.md in base_dir
+    let fallback2 = base_dir.join(format!("{}.md", date));
+    if fallback2.exists() { return Some(fallback2); }
+    None
+}
+
 pub fn run_git_log(
     project_path: &str,
     git_user_name: Option<&str>,
@@ -380,6 +419,7 @@ pub fn get_report_list(
         if !year_path.is_dir() { continue; }
         let year_name = year_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         if year_name == "weekly" { continue; }
+        // Scan month subdirectories: year/month/*.md
         for month_entry in std::fs::read_dir(&year_path).map_err(|e| format!("failed to read dir: {}", e))? {
             let month_entry = month_entry.map_err(|e| format!("failed to read entry: {}", e))?;
             let month_path = month_entry.path();
@@ -387,12 +427,32 @@ pub fn get_report_list(
             for file_entry in std::fs::read_dir(&month_path).map_err(|e| format!("failed to read dir: {}", e))? {
                 let file_entry = file_entry.map_err(|e| format!("failed to read entry: {}", e))?;
                 let path = file_entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
                     let date = path
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("")
                         .to_string();
+                    if is_valid_daily_filename(&date) {
+                        entries.push(ReportMeta {
+                            date: date.clone(),
+                            path: path.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        // Also scan files directly under year directory (legacy structure)
+        for file_entry in std::fs::read_dir(&year_path).map_err(|e| format!("failed to read dir: {}", e))? {
+            let file_entry = file_entry.map_err(|e| format!("failed to read entry: {}", e))?;
+            let path = file_entry.path();
+            if path.is_file() && path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
+                let date = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if is_valid_daily_filename(&date) {
                     entries.push(ReportMeta {
                         date: date.clone(),
                         path: path.to_string_lossy().to_string(),
@@ -413,11 +473,10 @@ pub fn read_report(
     date: String,
     work_dir: Option<String>,
 ) -> Result<String, String> {
-    let path = report_path(&project_path, &project_name, &date, work_dir.as_deref());
-    if !path.exists() {
-        return Err("report not found".to_string());
-    }
-    std::fs::read_to_string(&path).map_err(|e| format!("failed to read report: {}", e))
+    let base_dir = report_dir(&project_path, &project_name, work_dir.as_deref());
+    let path = find_report_file(&base_dir, &date)
+        .ok_or_else(|| format!("report not found: {}/{}/{}.md (or legacy paths)", base_dir.display(), date.split('-').next().unwrap_or(""), date))?;
+    read_file_with_encoding(&path)
 }
 
 #[tauri::command]
@@ -455,16 +514,18 @@ pub fn get_weekly_report_list(
         for file_entry in std::fs::read_dir(&year_path).map_err(|e| format!("failed to read dir: {}", e))? {
             let file_entry = file_entry.map_err(|e| format!("failed to read entry: {}", e))?;
             let path = file_entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("md") {
+            if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
                 let date = path
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_string();
-                entries.push(ReportMeta {
-                    date: date.clone(),
-                    path: path.to_string_lossy().to_string(),
-                });
+                if is_valid_weekly_filename(&date) {
+                    entries.push(ReportMeta {
+                        date: date.clone(),
+                        path: path.to_string_lossy().to_string(),
+                    });
+                }
             }
         }
     }
@@ -488,10 +549,10 @@ pub fn read_weekly_report(
     for entry in std::fs::read_dir(&dir).map_err(|e| format!("failed to read dir: {}", e))? {
         let entry = entry.map_err(|e| format!("failed to read entry: {}", e))?;
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("md") {
+        if path.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("md")).unwrap_or(false) {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             if stem.starts_with(&week_start) {
-                return std::fs::read_to_string(&path).map_err(|e| format!("failed to read weekly report: {}", e));
+                return read_file_with_encoding(&path);
             }
         }
     }
