@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::ai;
+use crate::config::ConfigDb;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitInfo {
     pub hash: String,
@@ -34,7 +37,7 @@ fn report_path(project_path: &str, project_name: &str, date: &str, work_dir: Opt
     report_dir(project_path, project_name, work_dir).join(format!("{}.md", date))
 }
 
-fn run_git_log(
+pub fn run_git_log(
     project_path: &str,
     git_user_name: Option<&str>,
     date: &str,
@@ -128,8 +131,45 @@ fn format_report(date: &str, project_name: &str, commits: &[CommitInfo]) -> Stri
     lines.join("\n")
 }
 
+fn build_commits_text(commits: &[CommitInfo]) -> String {
+    if commits.is_empty() {
+        return "今日无提交记录。".to_string();
+    }
+    let mut text = String::new();
+    for (i, commit) in commits.iter().enumerate() {
+        text.push_str(&format!("{}. {}\n", i + 1, commit.message));
+        if !commit.files_changed.is_empty() {
+            text.push_str(&format!("   变更文件: {}\n", commit.files_changed.join(", ")));
+        }
+    }
+    text
+}
+
+fn build_ai_prompt(date: &str, project_name: &str, commits: &[CommitInfo], template: Option<&str>) -> String {
+    let commits_text = build_commits_text(commits);
+
+    let mut prompt = format!(
+        "请根据以下 Git 提交记录生成一份工作日报。\n\n项目：{}\n日期：{}\n\n提交记录：\n{}",
+        project_name, date, commits_text
+    );
+
+    if let Some(tpl) = template {
+        prompt.push('\n');
+        prompt.push_str(tpl.trim());
+    } else {
+        prompt.push_str("\n要求：\n");
+        prompt.push_str("- 用第一人称描述今天的工作内容\n");
+        prompt.push_str("- 按工作内容分类汇总\n");
+        prompt.push_str("- 语言简洁专业\n");
+        prompt.push_str("- 输出 Markdown 格式，只输出日报正文，不需要标题以外的额外说明\n");
+    }
+
+    prompt
+}
+
 #[tauri::command]
-pub fn generate_daily_report(
+pub async fn generate_daily_report(
+    state: tauri::State<'_, ConfigDb>,
     project_path: String,
     project_name: String,
     git_user_name: Option<String>,
@@ -137,7 +177,22 @@ pub fn generate_daily_report(
     work_dir: Option<String>,
 ) -> Result<DailyReport, String> {
     let commits = run_git_log(&project_path, git_user_name.as_deref(), &date)?;
-    let content = format_report(&date, &project_name, &commits);
+
+    let configs = crate::config::get_configs(state)?;
+
+    let content = if let (Some(provider), Some(api_key), Some(model)) =
+        (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
+    {
+        if commits.is_empty() {
+            format_report(&date, &project_name, &commits)
+        } else {
+            let prompt = build_ai_prompt(&date, &project_name, &commits, configs.ai_template.as_deref());
+            let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
+            client.generate(&prompt)?
+        }
+    } else {
+        format_report(&date, &project_name, &commits)
+    };
 
     let dir = report_dir(&project_path, &project_name, work_dir.as_deref());
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create report dir: {}", e))?;
@@ -193,4 +248,50 @@ pub fn read_report(
         return Err("report not found".to_string());
     }
     std::fs::read_to_string(&path).map_err(|e| format!("failed to read report: {}", e))
+}
+
+#[tauri::command]
+pub fn save_report(
+    project_path: String,
+    project_name: String,
+    date: String,
+    content: String,
+    work_dir: Option<String>,
+) -> Result<(), String> {
+    let path = report_path(&project_path, &project_name, &date, work_dir.as_deref());
+    std::fs::write(&path, content).map_err(|e| format!("failed to save report: {}", e))
+}
+
+#[tauri::command]
+pub async fn polish_report(
+    state: tauri::State<'_, ConfigDb>,
+    content: String,
+) -> Result<String, String> {
+    let configs = crate::config::get_configs(state)?;
+
+    if let (Some(provider), Some(api_key), Some(model)) =
+        (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
+    {
+        let mut prompt = String::new();
+        prompt.push_str("请对以下日报进行润色和优化：\n\n");
+        prompt.push_str(&content);
+        prompt.push('\n');
+
+        if let Some(tpl) = configs.ai_template.as_deref() {
+            prompt.push_str("\n请按照以下要求优化：\n");
+            prompt.push_str(tpl.trim());
+        } else {
+            prompt.push_str("\n要求：\n");
+            prompt.push_str("- 保留原有的所有工作内容，包括用户补充的非开发任务\n");
+            prompt.push_str("- 用第一人称描述\n");
+            prompt.push_str("- 语言简洁专业\n");
+            prompt.push_str("- 保持 Markdown 格式\n");
+            prompt.push_str("- 只输出润色后的日报正文，不需要额外说明\n");
+        }
+
+        let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
+        client.generate(&prompt)
+    } else {
+        Ok(content)
+    }
 }

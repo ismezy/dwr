@@ -7,7 +7,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
-	import { CalendarDays, FileText, Sparkles } from '@lucide/svelte';
+	import { CalendarDays, FileText, Sparkles, Loader } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 
 	let showAiAlert = $state(false);
@@ -22,7 +22,7 @@
 		return !!cfg.ai_provider && !!cfg.ai_api_key;
 	}
 
-	async function handleGenerate() {
+	async function handleGenerateProject() {
 		const project = projectsStore.selected;
 		if (!project) return;
 
@@ -41,6 +41,50 @@
 		);
 	}
 
+	async function handleGenerateSummary() {
+		if (!isAiConfigured()) {
+			showAiAlert = true;
+			return;
+		}
+		await reportsStore.generateSummaryReport(
+			getTodayStr(),
+			configStore.configs.work_dir
+		);
+	}
+
+	async function handleGenerateAll() {
+		if (!isAiConfigured()) {
+			showAiAlert = true;
+			return;
+		}
+		const project = projectsStore.selected;
+		if (project) {
+			const gitUser = projectsStore.resolveGitUserName(project);
+			await reportsStore.generateReport(
+				project.path,
+				project.name,
+				gitUser,
+				getTodayStr(),
+				configStore.configs.work_dir
+			);
+		}
+		await reportsStore.generateSummaryReport(
+			getTodayStr(),
+			configStore.configs.work_dir
+		);
+	}
+
+	function handleGenerate() {
+		const mode = reportsStore.mode;
+		if (mode === 'per-project') {
+			handleGenerateProject();
+		} else if (mode === 'summary') {
+			handleGenerateSummary();
+		} else {
+			handleGenerateAll();
+		}
+	}
+
 	function goToSettings() {
 		showAiAlert = false;
 		goto('/settings');
@@ -57,11 +101,25 @@
 		);
 	}
 
+	async function handleSelectSummary(date: string) {
+		await reportsStore.readSummaryReport(date, configStore.configs.work_dir);
+	}
+
+	function setMode(mode: 'per-project' | 'summary' | 'all') {
+		reportsStore.setMode(mode);
+	}
+
 	$effect(() => {
 		const project = projectsStore.selected;
 		if (project) {
 			reportsStore.loadReports(project.path, project.name, configStore.configs.work_dir);
 			reportsStore.selectDate(null);
+		}
+	});
+
+	$effect(() => {
+		if (reportsStore.mode === 'summary' || reportsStore.mode === 'all') {
+			reportsStore.loadSummaryReports(configStore.configs.work_dir);
 		}
 	});
 </script>
@@ -78,38 +136,113 @@
 				size="sm"
 				class="h-7 px-2 text-xs shrink-0"
 				onclick={handleGenerate}
-				disabled={reportsStore.generating}
+				disabled={reportsStore.generating || reportsStore.summaryGenerating}
 				title={i18n.t('dailyReport.generate')}
 			>
-				<Sparkles class="h-3 w-3 mr-1" />
-				{reportsStore.generating ? i18n.t('dailyReport.generating') : i18n.t('dailyReport.generate')}
+				{#if reportsStore.generating || reportsStore.summaryGenerating}
+					<Loader class="h-3 w-3 mr-1 animate-spin" />
+				{:else}
+					<Sparkles class="h-3 w-3 mr-1" />
+				{/if}
+				{reportsStore.generating || reportsStore.summaryGenerating ? i18n.t('dailyReport.generating') : i18n.t('dailyReport.generate')}
 			</Button>
 		{/if}
 	</div>
 
-	{#if projectsStore.selected}
-		<ScrollArea class="flex-1">
-			<div class="p-2 space-y-1">
-				{#each reportsStore.reports as report (report.date)}
-					<button
-						class={cn(
-							'w-full text-left rounded-md px-3 py-2 transition-colors flex items-center gap-2',
-							reportsStore.selectedDate === report.date
-								? 'bg-accent text-accent-foreground'
-								: 'hover:bg-accent/50 text-foreground'
-						)}
-						onclick={() => handleSelect(report.date)}
-					>
-						<FileText class="h-4 w-4 shrink-0 opacity-60" />
-						<div class="flex-1 min-w-0">
-							<div class="text-sm font-medium">{report.date}</div>
+	<!-- Mode switcher -->
+	<div class="px-3 py-2 border-b shrink-0">
+		<div class="flex rounded-md border bg-background overflow-hidden">
+			{#each [{k: 'per-project' as const, l: i18n.t('dailyReport.modePerProject')}, {k: 'summary' as const, l: i18n.t('dailyReport.modeSummary')}, {k: 'all' as const, l: i18n.t('dailyReport.modeAll')}] as item}
+				<button
+					class={cn(
+						'flex-1 px-2 py-1.5 text-xs font-medium transition-colors',
+						reportsStore.mode === item.k
+							? 'bg-accent text-accent-foreground'
+							: 'hover:bg-accent/50 text-muted-foreground'
+					)}
+					onclick={() => setMode(item.k)}
+				>
+					{item.l}
+				</button>
+			{/each}
+		</div>
+	</div>
+
+	{#if projectsStore.selected || reportsStore.mode === 'summary'}
+		{@const isGenerating = reportsStore.generating || reportsStore.summaryGenerating}
+		<ScrollArea class="flex-1 {isGenerating ? 'opacity-50 pointer-events-none' : ''}">
+			<div class="p-2 space-y-4">
+				<!-- Summary section (visible in summary / all modes) -->
+				{#if reportsStore.mode === 'summary' || reportsStore.mode === 'all'}
+					<div>
+						<div class="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+							{i18n.t('dailyReport.summarySection')}
 						</div>
-					</button>
-				{:else}
-					<div class="text-xs text-muted-foreground text-center py-8 px-2">
-						{i18n.t('dailyReport.emptyHint')}
+						<div class="space-y-1 mt-1">
+							{#each reportsStore.summaryReports as report (report.date)}
+								<button
+									class={cn(
+										'w-full text-left rounded-md px-3 py-2 transition-colors flex items-center gap-2',
+										reportsStore.summarySelectedDate === report.date
+											? 'bg-accent text-accent-foreground'
+											: 'hover:bg-accent/50 text-foreground'
+									)}
+									onclick={() => handleSelectSummary(report.date)}
+								>
+									<FileText class="h-4 w-4 shrink-0 opacity-60" />
+									<div class="flex-1 min-w-0">
+										<div class="text-sm font-medium">{report.date}</div>
+									</div>
+								</button>
+							{:else}
+								<div class="text-xs text-muted-foreground text-center py-4 px-2">
+									{i18n.t('dailyReport.emptyHint')}
+								</div>
+							{/each}
+						</div>
 					</div>
-				{/each}
+				{/if}
+
+				<!-- Project section (visible in per-project / all modes) -->
+				{#if reportsStore.mode === 'per-project' || reportsStore.mode === 'all'}
+					{#if projectsStore.selected}
+						<div>
+							{#if reportsStore.mode === 'all'}
+								<div class="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+									{projectsStore.selected.name}
+								</div>
+							{/if}
+							<div class="space-y-1 mt-1">
+								{#each reportsStore.reports as report (report.date)}
+									<button
+										class={cn(
+											'w-full text-left rounded-md px-3 py-2 transition-colors flex items-center gap-2',
+											reportsStore.selectedDate === report.date
+												? 'bg-accent text-accent-foreground'
+												: 'hover:bg-accent/50 text-foreground'
+										)}
+										onclick={() => handleSelect(report.date)}
+									>
+										<FileText class="h-4 w-4 shrink-0 opacity-60" />
+										<div class="flex-1 min-w-0">
+											<div class="text-sm font-medium">{report.date}</div>
+										</div>
+									</button>
+								{:else}
+									<div class="text-xs text-muted-foreground text-center py-4 px-2">
+										{i18n.t('dailyReport.emptyHint')}
+									</div>
+								{/each}
+							</div>
+						</div>
+					{:else if reportsStore.mode === 'per-project'}
+						<div class="flex-1 flex items-center justify-center">
+							<div class="text-sm text-muted-foreground text-center px-4">
+								{i18n.t('dailyReport.emptyHint')}
+							</div>
+						</div>
+					{/if}
+				{/if}
 			</div>
 		</ScrollArea>
 	{:else}

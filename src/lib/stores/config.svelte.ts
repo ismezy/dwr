@@ -13,6 +13,7 @@ export interface ConfigData {
 	ai_api_key?: string;
 	ai_base_url?: string;
 	ai_model?: string;
+	ai_template?: string;
 }
 
 async function loadConfigs(): Promise<ConfigData> {

@@ -4,6 +4,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
+	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { configStore, type Theme } from '$lib/stores/config.svelte';
@@ -19,8 +20,12 @@
 	let aiApiKey = $state('');
 	let aiBaseUrl = $state('');
 	let aiModel = $state('');
+	let aiTemplate = $state('');
 	let fetchedModels = $state<{ id: string; label: string }[]>([]);
 	let fetchingModels = $state(false);
+
+	const DEFAULT_TEMPLATE_ZH = '# 年-月-日 工作日报\n## 今日工作概览\n\n## 今日完成任务\n\n## 明日工作计划';
+	const DEFAULT_TEMPLATE_EN = "# YYYY-MM-DD Daily Report\n## Today's Overview\n\n## Completed Tasks\n\n## Tomorrow's Plan";
 
 	async function init() {
 		await configStore.refresh();
@@ -32,6 +37,8 @@
 		aiApiKey = configStore.configs.ai_api_key ?? '';
 		aiBaseUrl = configStore.configs.ai_base_url ?? '';
 		aiModel = configStore.configs.ai_model ?? '';
+		const defaultTpl = lang === 'en' ? DEFAULT_TEMPLATE_EN : DEFAULT_TEMPLATE_ZH;
+		aiTemplate = configStore.configs.ai_template ?? defaultTpl;
 	}
 
 	init();
@@ -56,6 +63,7 @@
 			ai_api_key: aiApiKey.trim() || undefined,
 			ai_base_url: aiProvider === 'custom' ? aiBaseUrl.trim() || undefined : undefined,
 			ai_model: aiModel.trim() || undefined,
+			ai_template: aiTemplate.trim() || undefined,
 		});
 		toastStore.show(i18n.t('settings.saveSuccess'));
 	}
@@ -313,6 +321,20 @@
 									</Select.Content>
 								</Select.Root>
 							{/if}
+						</div>
+
+						<div class="grid gap-2">
+							<Label for="ai-template">{i18n.t('config.ai.template')}</Label>
+							<Textarea
+								id="ai-template"
+								bind:value={aiTemplate}
+								placeholder={i18n.t('config.ai.templateHint')}
+								rows={10}
+								class="font-mono text-xs"
+							/>
+							<div class="text-xs text-muted-foreground">
+								{i18n.t('config.ai.templateVars')}
+							</div>
 						</div>
 					{/if}
 				</Card.Content>

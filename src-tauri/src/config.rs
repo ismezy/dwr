@@ -22,6 +22,8 @@ pub struct ConfigData {
     pub ai_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_template: Option<String>,
 }
 
 pub struct ConfigDb {
@@ -107,6 +109,7 @@ pub fn get_configs(state: tauri::State<'_, ConfigDb>) -> Result<ConfigData, Stri
         ai_api_key: map.get("ai_api_key").cloned(),
         ai_base_url: map.get("ai_base_url").cloned(),
         ai_model: map.get("ai_model").cloned(),
+        ai_template: map.get("ai_template").cloned(),
     })
 }
 
@@ -123,5 +126,6 @@ pub fn save_configs(
     opt_set(&state, "ai_api_key", &data.ai_api_key)?;
     opt_set(&state, "ai_base_url", &data.ai_base_url)?;
     opt_set(&state, "ai_model", &data.ai_model)?;
+    opt_set(&state, "ai_template", &data.ai_template)?;
     Ok(())
 }
