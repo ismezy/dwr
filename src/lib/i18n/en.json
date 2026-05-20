@@ -22,6 +22,8 @@
   "dailyReport.lastWeek": "Last Week",
   "dailyReport.twoWeeksAgo": "Two Weeks Ago",
   "dailyReport.generating": "Generating...",
+  "dailyReport.generateFor": "Generate {label}'s Report",
+  "dailyReport.generateWeeklyFor": "Generate {label}'s Weekly Report",
   "dailyReport.aiConfigTitle": "AI Not Configured",
   "dailyReport.aiNotConfigured": "Please configure the AI provider and API Key in settings first. Daily report generation requires AI capabilities.",
   "dailyReport.noProjectTitle": "Create Project First",
@@ -51,6 +53,8 @@
   "content.gitUser.project": "Project",
   "content.gitUser.global": "Global",
   "content.gitUser.unconfigured": "Not configured",
+  "content.dailyReport": "Daily Report",
+  "content.weeklyReport": "Weekly Report",
   "settings.title": "Settings",
   "settings.back": "Back",
   "settings.saveSuccess": "Saved successfully",
@@ -95,5 +99,7 @@
   "common.cancel": "Cancel",
   "common.required": "Required",
   "common.saving": "Saving...",
-  "common.optional": "Optional"
+  "common.optional": "Optional",
+  "common.delete": "Delete",
+  "common.selectFolder": "Select Folder"
 }

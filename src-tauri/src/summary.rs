@@ -5,6 +5,7 @@ use tauri::Manager;
 use crate::ai;
 use crate::config::ConfigDb;
 use crate::project::{DbConnection, Project};
+use crate::locale;
 use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding, get_week_start, parse_date, format_date, next_date, prev_date, check_git_available};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,9 +48,11 @@ fn weekly_summary_path(week_start: &str, week_end: &str, work_dir: Option<&str>,
     Ok(weekly_summary_dir(work_dir, app_handle)?.join(year).join(format!("{}至{}.md", week_start, week_end)))
 }
 
-fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo>)], recent_reports: &[(String, String)], template: Option<&str>) -> String {
+fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo>)], recent_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
     let mut prompt = format!(
-        "请根据以下各项目的 Git 提交记录生成一份工作汇总日报。\n\n日期：{}\n\n",
+        "{}\n\n{}: {}\n\n",
+        locale::t(locale, "ai_summary_daily_intro"),
+        locale::t(locale, "ai_summary_date"),
         date
     );
 
@@ -57,13 +60,14 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
     for (project, commits) in projects_commits {
         prompt.push_str(&format!("## {}\n", project.name));
         if commits.is_empty() {
-            prompt.push_str("今日无提交记录。\n");
+            prompt.push_str(locale::t(locale, "ai_summary_no_commits"));
+            prompt.push('\n');
         } else {
             has_commits = true;
             for (i, commit) in commits.iter().enumerate() {
                 prompt.push_str(&format!("{}. {}\n", i + 1, commit.message));
                 if !commit.files_changed.is_empty() {
-                    prompt.push_str(&format!("   变更文件: {}\n", commit.files_changed.join(", ")));
+                    prompt.push_str(&format!("   {}: {}\n", locale::t(locale, "changed_files"), commit.files_changed.join(", ")));
                 }
             }
         }
@@ -71,7 +75,7 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
     }
 
     if !recent_reports.is_empty() {
-        prompt.push_str("本周已生成的汇总日报（供参考，避免重复描述同一任务）：\n");
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_summary_recent_note")));
         for (report_date, content) in recent_reports {
             prompt.push_str(&format!("## {}\n{}\n", report_date, content));
         }
@@ -80,35 +84,41 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
     if let Some(tpl) = template {
         prompt.push_str(tpl.trim());
     } else {
-        prompt.push_str("要求：\n");
-        prompt.push_str("- 用第一人称描述今天的工作内容\n");
-        prompt.push_str("- 按项目或工作内容分类汇总\n");
-        prompt.push_str("- 语言简洁专业\n");
-        prompt.push_str("- 输出 Markdown 格式，只输出日报正文，不需要标题以外的额外说明\n");
+        prompt.push_str(&format!("{}:\n", locale::t(locale, "ai_summary_requirements")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_summary_first_person")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_summary_categorize")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_concise")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_markdown_only")));
     }
 
     if !recent_reports.is_empty() {
-        prompt.push_str("\n注意：请对比本周已生成的汇总日报内容，如果今天的工作任务在之前的日报中已经描述过，请避免重复描述同一任务，只说明今天的增量进展。\n");
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_summary_avoid_duplicate")));
     }
 
     if !has_commits {
-        prompt.push_str("\n注意：今天所有项目均无提交记录，请生成一份说明今日无工作记录的简短日报。\n");
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_summary_empty_note")));
     }
+
+    prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_language_hint")));
 
     prompt
 }
 
-fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)], recent_weekly_reports: &[(String, String)], template: Option<&str>) -> String {
+fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)], recent_weekly_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
     let mut prompt = format!(
-        "请根据以下各项目本周的日报内容，汇总生成一份工作周报。\n\n周期：{} ~ {}\n\n",
-        week_start, week_end
+        "{}\n\n{}: {} ~ {}\n\n",
+        locale::t(locale, "ai_summary_weekly_intro"),
+        locale::t(locale, "ai_summary_weekly_period"),
+        week_start,
+        week_end
     );
 
     let mut has_any = false;
     for (project, daily_reports) in projects_reports {
         prompt.push_str(&format!("## {}\n", project.name));
         if daily_reports.is_empty() {
-            prompt.push_str("本周暂无日报内容。\n");
+            prompt.push_str(locale::t(locale, "ai_summary_no_daily_reports"));
+            prompt.push('\n');
         } else {
             has_any = true;
             for (date, content) in daily_reports {
@@ -120,30 +130,32 @@ fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_report
     }
 
     if !recent_weekly_reports.is_empty() {
-        prompt.push_str("前3周的汇总周报（供参考，避免与之前的工作内容重复描述）：\n");
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_summary_recent_weekly_note")));
         for (period, content) in recent_weekly_reports {
-            prompt.push_str(&format!("## {}汇总周报\n{}\n", period, content));
+            prompt.push_str(&format!("## {} {}\n{}\n", period, locale::t(locale, "summary_weekly_suffix"), content));
         }
     }
 
     if let Some(tpl) = template {
         prompt.push_str(tpl.trim());
     } else {
-        prompt.push_str("要求：\n");
-        prompt.push_str("- 用第一人称描述本周的工作内容\n");
-        prompt.push_str("- 基于各项目已有的日报内容进行概括和汇总，不要遗漏重要工作\n");
-        prompt.push_str("- 按项目或工作内容分类汇总\n");
-        prompt.push_str("- 语言简洁专业\n");
-        prompt.push_str("- 输出 Markdown 格式，只输出周报正文，不需要标题以外的额外说明\n");
+        prompt.push_str(&format!("{}:\n", locale::t(locale, "ai_summary_requirements")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_summary_weekly_first_person")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_summary_weekly_summarize")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_summary_weekly_categorize")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_concise")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_markdown_only")));
     }
 
     if !recent_weekly_reports.is_empty() {
-        prompt.push_str("\n注意：请对比前3周的汇总周报内容，如果本周的工作任务在之前几周的周报中已经描述过，请避免重复描述同一任务，只说明本周的增量进展或新进展。\n");
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_summary_weekly_avoid_duplicate")));
     }
 
     if !has_any {
-        prompt.push_str("\n注意：本周所有项目均无日报内容，请生成一份说明本周无工作记录的简短周报。\n");
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_summary_weekly_empty_note")));
     }
+
+    prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_language_hint")));
 
     prompt
 }
@@ -222,7 +234,9 @@ pub async fn generate_summary_report(
     app_handle: tauri::AppHandle,
     date: String,
     work_dir: Option<String>,
+    locale: Option<String>,
 ) -> Result<SummaryReport, String> {
+    let locale = locale.as_deref().unwrap_or("zh");
     let configs = crate::config::get_configs(config_state)?;
     let git_path = configs.git_path.as_deref();
     check_git_available(git_path)?;
@@ -249,14 +263,14 @@ pub async fn generate_summary_report(
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if total_commits == 0 {
-            format_summary_report(&date, &projects_commits)
+            format_summary_report(&date, &projects_commits, locale)
         } else {
-            let prompt = build_summary_prompt(&date, &projects_commits, &recent_reports, configs.ai_template.as_deref());
+            let prompt = build_summary_prompt(&date, &projects_commits, &recent_reports, configs.ai_template.as_deref(), locale);
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
     } else {
-        format_summary_report(&date, &projects_commits)
+        format_summary_report(&date, &projects_commits, locale)
     };
 
     let path = summary_path(&date, work_dir.as_deref(), app_handle.clone())?;
@@ -268,9 +282,9 @@ pub async fn generate_summary_report(
     Ok(SummaryReport { date, content })
 }
 
-fn format_summary_report(_date: &str, projects_commits: &[(Project, Vec<CommitInfo>)]) -> String {
+fn format_summary_report(_date: &str, projects_commits: &[(Project, Vec<CommitInfo>)], locale: &str) -> String {
     let mut lines = Vec::new();
-    lines.push("# 工作汇总日报".to_string());
+    lines.push(format!("# {}", locale::t(locale, "summary_daily_title")));
     lines.push(String::new());
 
     let mut has_any = false;
@@ -281,7 +295,7 @@ fn format_summary_report(_date: &str, projects_commits: &[(Project, Vec<CommitIn
             for (i, commit) in commits.iter().enumerate() {
                 lines.push(format!("{}. {}", i + 1, commit.message));
                 if !commit.files_changed.is_empty() {
-                    lines.push(format!("   - 变更文件: {}", commit.files_changed.join(", ")));
+                    lines.push(format!("   - {}: {}", locale::t(locale, "changed_files"), commit.files_changed.join(", ")));
                 }
             }
             lines.push(String::new());
@@ -289,15 +303,15 @@ fn format_summary_report(_date: &str, projects_commits: &[(Project, Vec<CommitIn
     }
 
     if !has_any {
-        lines.push("今日所有项目均无提交记录。".to_string());
+        lines.push(locale::t(locale, "no_commits_all_projects").to_string());
     }
 
     lines.join("\n")
 }
 
-fn format_weekly_summary_report(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)]) -> String {
+fn format_weekly_summary_report(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)], locale: &str) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("# 工作汇总周报 ({} ~ {})", week_start, week_end));
+    lines.push(format!("# {} ({} ~ {})", locale::t(locale, "summary_weekly_title"), week_start, week_end));
     lines.push(String::new());
 
     let mut has_any = false;
@@ -314,7 +328,7 @@ fn format_weekly_summary_report(week_start: &str, week_end: &str, projects_repor
     }
 
     if !has_any {
-        lines.push("本周所有项目均无日报内容。".to_string());
+        lines.push(locale::t(locale, "no_daily_reports_all_projects").to_string());
     }
 
     lines.join("\n")
@@ -328,7 +342,9 @@ pub async fn generate_weekly_summary_report(
     week_start: String,
     week_end: String,
     work_dir: Option<String>,
+    locale: Option<String>,
 ) -> Result<SummaryReport, String> {
+    let locale = locale.as_deref().unwrap_or("zh");
     let projects = crate::project::get_projects(project_state)?;
 
     let mut projects_reports: Vec<(Project, Vec<(String, String)>)> = Vec::new();
@@ -347,14 +363,14 @@ pub async fn generate_weekly_summary_report(
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if total_reports == 0 {
-            format_weekly_summary_report(&week_start, &week_end, &projects_reports)
+            format_weekly_summary_report(&week_start, &week_end, &projects_reports, locale)
         } else {
-            let prompt = build_weekly_summary_prompt(&week_start, &week_end, &projects_reports, &recent_weekly_reports, configs.ai_template.as_deref());
+            let prompt = build_weekly_summary_prompt(&week_start, &week_end, &projects_reports, &recent_weekly_reports, configs.ai_template.as_deref(), locale);
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
     } else {
-        format_weekly_summary_report(&week_start, &week_end, &projects_reports)
+        format_weekly_summary_report(&week_start, &week_end, &projects_reports, locale)
     };
 
     let dir = weekly_summary_dir(work_dir.as_deref(), app_handle.clone())?.join(week_start.split('-').next().unwrap_or(""));

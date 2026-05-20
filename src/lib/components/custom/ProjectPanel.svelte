@@ -16,8 +16,24 @@
 	import { Folder, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, FolderGit2 } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 
-	let collapsed = $state(false);
+	function getInitialCollapsed(): boolean {
+		try {
+			return localStorage.getItem('dwr:project-panel-collapsed') === 'true';
+		} catch {
+			return false;
+		}
+	}
+
+	let collapsed = $state(getInitialCollapsed());
 	let dialogOpen = $state(false);
+
+	$effect(() => {
+		try {
+			localStorage.setItem('dwr:project-panel-collapsed', String(collapsed));
+		} catch {
+			// noop: localStorage may not be available in release builds
+		}
+	});
 	let editingId = $state<string | null>(null);
 	let formName = $state('');
 	let formCode = $state('');
@@ -159,7 +175,7 @@
 									size="icon"
 									class="h-6 w-6 text-destructive hover:text-destructive"
 									onclick={(e) => handleDelete(project.id, e)}
-									title="删除"
+									title={i18n.t('common.delete')}
 								>
 									<Trash2 class="h-3 w-3" />
 								</Button>
@@ -221,7 +237,7 @@
 						class="flex-1"
 						readonly
 					/>
-					<Button variant="outline" size="icon" onclick={pickFolder} title="选择文件夹">
+					<Button variant="outline" size="icon" onclick={pickFolder} title={i18n.t('common.selectFolder')}>
 						<Folder class="h-4 w-4" />
 					</Button>
 				</div>

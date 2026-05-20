@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { i18n } from '$lib/i18n';
 
 export type ReportMode = 'per-project' | 'summary' | 'all';
 export type ReportPeriod = 'daily' | 'weekly';
@@ -86,6 +87,7 @@ function createReportsStore() {
 					weekStart: date,
 					weekEnd,
 					workDir,
+					locale: i18n.locale,
 				});
 				await loadReports(projectPath, projectName, workDir);
 				selectedDate = date;
@@ -98,6 +100,7 @@ function createReportsStore() {
 					gitUserName,
 					date,
 					workDir,
+					locale: i18n.locale,
 				});
 				await loadReports(projectPath, projectName, workDir);
 				selectedDate = date;
@@ -134,6 +137,7 @@ function createReportsStore() {
 					projectName,
 					date,
 					workDir,
+					locale: i18n.locale,
 				});
 			}
 		} catch (e) {
@@ -175,6 +179,7 @@ function createReportsStore() {
 					weekStart: date,
 					weekEnd,
 					workDir,
+					locale: i18n.locale,
 				});
 				await loadSummaryReports(workDir);
 				summarySelectedDate = date;
@@ -262,7 +267,7 @@ function createReportsStore() {
 	}
 
 	async function polish(content: string) {
-		return await invoke<string>('polish_report', { content });
+		return await invoke<string>('polish_report', { content, locale: i18n.locale });
 	}
 
 	function selectSummaryDate(date: string | null) {

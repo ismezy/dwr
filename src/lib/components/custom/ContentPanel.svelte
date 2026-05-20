@@ -149,7 +149,7 @@
 				{#if isSummaryActive()}
 					{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.summaryTitleWeekly') : i18n.t('dailyReport.summaryTitle')}
 				{:else}
-					{projectsStore.selected?.name ?? ''}{reportsStore.reportPeriod === 'weekly' ? '周报' : '日报'}
+					{#if i18n.locale === 'en'}{projectsStore.selected?.name ?? ''} {reportsStore.reportPeriod === 'weekly' ? i18n.t('content.weeklyReport') : i18n.t('content.dailyReport')}{:else}{projectsStore.selected?.name ?? ''}{reportsStore.reportPeriod === 'weekly' ? i18n.t('content.weeklyReport') : i18n.t('content.dailyReport')}{/if}
 				{/if}
 			</div>
 			<div class="flex items-center gap-2">

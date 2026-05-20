@@ -1,5 +1,6 @@
 mod ai;
 mod config;
+mod locale;
 mod project;
 mod report;
 mod summary;

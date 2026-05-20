@@ -211,6 +211,22 @@
 		expandedYears = next;
 	}
 
+	function formatYearLabel(year: string): string {
+		return i18n.locale === 'en' ? year : `${year}年`;
+	}
+
+	function formatYearMonthLabel(year: string, month: string): string {
+		if (i18n.locale === 'en') {
+			const d = new Date(parseInt(year), parseInt(month) - 1);
+			return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long' }).format(d);
+		}
+		return `${year}年${month}月`;
+	}
+
+	function formatWeeklyDateLabel(date: string): string {
+		return date.replace(/至/g, ' ~ ');
+	}
+
 	function toggleMonth(yearMonth: string) {
 		const next = new Set(expandedMonths);
 		if (next.has(yearMonth)) {
@@ -464,7 +480,7 @@
 												<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 												<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 											{/if}
-											<span>{yearGroup.year}年</span>
+											<span>{formatYearLabel(yearGroup.year)}</span>
 										</button>
 										{#if isYearExpanded(yearGroup.year)}
 											<div class="pl-5 space-y-0.5">
@@ -504,7 +520,7 @@
 												<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 												<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 											{/if}
-											<span>{yearGroup.year}年</span>
+											<span>{formatYearLabel(yearGroup.year)}</span>
 										</button>
 										{#if isYearExpanded(yearGroup.year)}
 											<div class="pl-5 space-y-0.5">
@@ -521,7 +537,7 @@
 																<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 																<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 															{/if}
-															<span>{yearGroup.year}年{monthGroup.month}月</span>
+															<span>{formatYearMonthLabel(yearGroup.year, monthGroup.month)}</span>
 														</button>
 														{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
 															<div class="pl-5 space-y-0.5">
@@ -580,7 +596,7 @@
 													<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 													<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 												{/if}
-												<span>{yearGroup.year}年</span>
+												<span>{formatYearLabel(yearGroup.year)}</span>
 											</button>
 											{#if isYearExpanded(yearGroup.year)}
 												<div class="pl-5 space-y-0.5">
@@ -620,7 +636,7 @@
 													<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 													<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 												{/if}
-												<span>{yearGroup.year}年</span>
+												<span>{formatYearLabel(yearGroup.year)}</span>
 											</button>
 											{#if isYearExpanded(yearGroup.year)}
 												<div class="pl-5 space-y-0.5">
@@ -637,7 +653,7 @@
 																	<Folder class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 																	<ChevronRight class="h-3 w-3 shrink-0 text-muted-foreground" />
 																{/if}
-																<span>{yearGroup.year}年{monthGroup.month}月</span>
+																<span>{formatYearMonthLabel(yearGroup.year, monthGroup.month)}</span>
 															</button>
 															{#if isMonthExpanded(`${yearGroup.year}-${monthGroup.month}`)}
 																<div class="pl-5 space-y-0.5">

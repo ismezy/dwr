@@ -5,6 +5,8 @@ use std::process::Command;
 use crate::ai;
 use crate::config::ConfigDb;
 
+use crate::locale;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitInfo {
     pub hash: String,
@@ -183,21 +185,21 @@ pub fn run_git_log(
     Ok(commits)
 }
 
-fn format_report(date: &str, project_name: &str, commits: &[CommitInfo]) -> String {
+fn format_report(date: &str, project_name: &str, commits: &[CommitInfo], locale: &str) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("# {} 日报 - {}", date, project_name));
+    lines.push(format!("# {} {} - {}", date, locale::t(locale, "daily_report_title"), project_name));
     lines.push(String::new());
 
     if commits.is_empty() {
-        lines.push("今日无提交记录。".to_string());
+        lines.push(locale::t(locale, "no_commits_today").to_string());
     } else {
-        lines.push(format!("## 提交记录 ({}条)", commits.len()));
+        lines.push(format!("## {} ({})", locale::t(locale, "commits_label"), commits.len()));
         lines.push(String::new());
 
         for (i, commit) in commits.iter().enumerate() {
             lines.push(format!("{}. {}", i + 1, commit.message));
             if !commit.files_changed.is_empty() {
-                lines.push(format!("   - 变更文件: {}", commit.files_changed.join(", ")));
+                lines.push(format!("   - {}: {}", locale::t(locale, "changed_files"), commit.files_changed.join(", ")));
             }
         }
     }
@@ -394,13 +396,13 @@ fn collect_recent_weekly_reports(
     reports
 }
 
-fn format_weekly_report(week_start: &str, week_end: &str, project_name: &str, daily_reports: &[(String, String)]) -> String {
+fn format_weekly_report(week_start: &str, week_end: &str, project_name: &str, daily_reports: &[(String, String)], locale: &str) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("# {} ~ {} 周报 - {}", week_start, week_end, project_name));
+    lines.push(format!("# {} ~ {} {} - {}", week_start, week_end, locale::t(locale, "weekly_report_title"), project_name));
     lines.push(String::new());
 
     if daily_reports.is_empty() {
-        lines.push("本周暂无日报内容。".to_string());
+        lines.push(locale::t(locale, "no_daily_reports_week").to_string());
     } else {
         for (date, content) in daily_reports {
             lines.push(format!("## {}", date));
@@ -412,30 +414,36 @@ fn format_weekly_report(week_start: &str, week_end: &str, project_name: &str, da
     lines.join("\n")
 }
 
-fn build_commits_text(commits: &[CommitInfo]) -> String {
+fn build_commits_text(commits: &[CommitInfo], locale: &str) -> String {
     if commits.is_empty() {
-        return "今日无提交记录。".to_string();
+        return locale::t(locale, "no_commits_today").to_string();
     }
     let mut text = String::new();
     for (i, commit) in commits.iter().enumerate() {
         text.push_str(&format!("{}. {}\n", i + 1, commit.message));
         if !commit.files_changed.is_empty() {
-            text.push_str(&format!("   变更文件: {}\n", commit.files_changed.join(", ")));
+            text.push_str(&format!("   {}: {}\n", locale::t(locale, "changed_files"), commit.files_changed.join(", ")));
         }
     }
     text
 }
 
-fn build_ai_prompt(date: &str, project_name: &str, commits: &[CommitInfo], recent_reports: &[(String, String)], template: Option<&str>) -> String {
-    let commits_text = build_commits_text(commits);
+fn build_ai_prompt(date: &str, project_name: &str, commits: &[CommitInfo], recent_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
+    let commits_text = build_commits_text(commits, locale);
 
     let mut prompt = format!(
-        "请根据以下 Git 提交记录生成一份工作日报。\n\n项目：{}\n日期：{}\n\n提交记录：\n{}",
-        project_name, date, commits_text
+        "{}\n\n{}: {}\n{}: {}\n\n{}:\n{}",
+        locale::t(locale, "ai_daily_intro"),
+        locale::t(locale, "ai_daily_project"),
+        project_name,
+        locale::t(locale, "ai_daily_date"),
+        date,
+        locale::t(locale, "ai_daily_commits"),
+        commits_text
     );
 
     if !recent_reports.is_empty() {
-        prompt.push_str("\n\n本周已生成的日报（供参考，避免重复描述同一任务）：\n");
+        prompt.push_str(&format!("\n\n{}\n", locale::t(locale, "ai_recent_reports_note")));
         for (report_date, content) in recent_reports {
             prompt.push_str(&format!("## {}\n{}\n", report_date, content));
         }
@@ -445,35 +453,44 @@ fn build_ai_prompt(date: &str, project_name: &str, commits: &[CommitInfo], recen
         prompt.push('\n');
         prompt.push_str(tpl.trim());
     } else {
-        prompt.push_str("\n要求：\n");
-        prompt.push_str("- 用第一人称描述今天的工作内容\n");
-        prompt.push_str("- 按工作内容分类汇总\n");
-        prompt.push_str("- 语言简洁专业\n");
-        prompt.push_str("- 输出 Markdown 格式，只输出日报正文，不需要标题以外的额外说明\n");
+        prompt.push_str(&format!("\n{}:\n", locale::t(locale, "ai_requirements")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_first_person")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_categorize")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_concise")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_markdown_only")));
     }
 
     if !recent_reports.is_empty() {
-        prompt.push_str("\n注意：请对比本周已生成的日报内容，如果今天的工作任务在之前的日报中已经描述过（例如昨天写了\"新增完成A功能\"，今天只是继续完善或修复bug），请避免重复描述同一任务，只说明今天的增量进展。\n");
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_avoid_duplicate_note")));
     }
+
+    prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_language_hint")));
 
     prompt
 }
 
-fn build_weekly_ai_prompt(week_start: &str, week_end: &str, project_name: &str, daily_reports: &[(String, String)], recent_weekly_reports: &[(String, String)], template: Option<&str>) -> String {
+fn build_weekly_ai_prompt(week_start: &str, week_end: &str, project_name: &str, daily_reports: &[(String, String)], recent_weekly_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
     let mut daily_text = String::new();
     for (date, content) in daily_reports {
         daily_text.push_str(&format!("\n## {}\n{}", date, content));
     }
 
     let mut prompt = format!(
-        "请根据以下本周各日的日报内容，汇总生成一份工作周报。\n\n项目：{}\n周期：{} ~ {}\n\n日报内容：{}",
-        project_name, week_start, week_end, daily_text
+        "{}\n\n{}: {}\n{}: {} ~ {}\n\n{}:{}",
+        locale::t(locale, "ai_weekly_intro"),
+        locale::t(locale, "ai_weekly_project"),
+        project_name,
+        locale::t(locale, "ai_weekly_period"),
+        week_start,
+        week_end,
+        locale::t(locale, "ai_weekly_daily_content"),
+        daily_text
     );
 
     if !recent_weekly_reports.is_empty() {
-        prompt.push_str("\n\n前3周的周报（供参考，避免与之前的工作内容重复描述）：\n");
+        prompt.push_str(&format!("\n\n{}\n", locale::t(locale, "ai_recent_weekly_note")));
         for (period, content) in recent_weekly_reports {
-            prompt.push_str(&format!("## {}周报\n{}\n", period, content));
+            prompt.push_str(&format!("## {} {}\n{}\n", period, locale::t(locale, "weekly_report_suffix"), content));
         }
     }
 
@@ -481,16 +498,19 @@ fn build_weekly_ai_prompt(week_start: &str, week_end: &str, project_name: &str, 
         prompt.push('\n');
         prompt.push_str(tpl.trim());
     } else {
-        prompt.push_str("\n要求：\n");
-        prompt.push_str("- 用第一人称描述本周的工作内容\n");
-        prompt.push_str("- 基于已有的日报内容，进行概括和汇总，不要遗漏重要工作\n");
-        prompt.push_str("- 语言简洁专业\n");
-        prompt.push_str("- 输出 Markdown 格式，只输出周报正文，不需要标题以外的额外说明\n");
+        prompt.push_str(&format!("\n{}:\n", locale::t(locale, "ai_requirements")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_weekly_first_person")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_weekly_summarize")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_categorize")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_concise")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_markdown_only")));
     }
 
     if !recent_weekly_reports.is_empty() {
-        prompt.push_str("\n注意：请对比前3周的周报内容，如果本周的工作任务在之前几周的周报中已经描述过，请避免重复描述同一任务，只说明本周的增量进展或新进展。\n");
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_weekly_avoid_duplicate")));
     }
+
+    prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_language_hint")));
 
     prompt
 }
@@ -503,7 +523,9 @@ pub async fn generate_daily_report(
     git_user_name: Option<String>,
     date: String,
     work_dir: Option<String>,
+    locale: Option<String>,
 ) -> Result<DailyReport, String> {
+    let locale = locale.as_deref().unwrap_or("zh");
     let configs = crate::config::get_configs(state)?;
     let git_path = configs.git_path.as_deref();
     check_git_available(git_path)?;
@@ -519,14 +541,14 @@ pub async fn generate_daily_report(
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if commits.is_empty() {
-            format_report(&date, &project_name, &commits)
+            format_report(&date, &project_name, &commits, locale)
         } else {
-            let prompt = build_ai_prompt(&date, &project_name, &commits, &recent_reports, configs.ai_template.as_deref());
+            let prompt = build_ai_prompt(&date, &project_name, &commits, &recent_reports, configs.ai_template.as_deref(), locale);
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
     } else {
-        format_report(&date, &project_name, &commits)
+        format_report(&date, &project_name, &commits, locale)
     };
 
     let path = report_path(&project_path, &project_name, &date, work_dir.as_deref());
@@ -547,7 +569,9 @@ pub async fn generate_weekly_report(
     week_start: String,
     week_end: String,
     work_dir: Option<String>,
+    locale: Option<String>,
 ) -> Result<DailyReport, String> {
+    let locale = locale.as_deref().unwrap_or("zh");
     let daily_reports = collect_weekly_daily_reports(&project_path, &project_name, &week_start, &week_end, work_dir.as_deref());
     let recent_weekly_reports = collect_recent_weekly_reports(&project_path, &project_name, &week_start, work_dir.as_deref());
 
@@ -557,14 +581,14 @@ pub async fn generate_weekly_report(
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if daily_reports.is_empty() {
-            format_weekly_report(&week_start, &week_end, &project_name, &daily_reports)
+            format_weekly_report(&week_start, &week_end, &project_name, &daily_reports, locale)
         } else {
-            let prompt = build_weekly_ai_prompt(&week_start, &week_end, &project_name, &daily_reports, &recent_weekly_reports, configs.ai_template.as_deref());
+            let prompt = build_weekly_ai_prompt(&week_start, &week_end, &project_name, &daily_reports, &recent_weekly_reports, configs.ai_template.as_deref(), locale);
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
     } else {
-        format_weekly_report(&week_start, &week_end, &project_name, &daily_reports)
+        format_weekly_report(&week_start, &week_end, &project_name, &daily_reports, locale)
     };
 
     let dir = weekly_report_dir(&project_path, &project_name, work_dir.as_deref()).join(week_start.split('-').next().unwrap_or(""));
@@ -773,28 +797,32 @@ pub fn save_weekly_report(
 pub async fn polish_report(
     state: tauri::State<'_, ConfigDb>,
     content: String,
+    locale: Option<String>,
 ) -> Result<String, String> {
+    let locale = locale.as_deref().unwrap_or("zh");
     let configs = crate::config::get_configs(state)?;
 
     if let (Some(provider), Some(api_key), Some(model)) =
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         let mut prompt = String::new();
-        prompt.push_str("请对以下日报进行润色和优化：\n\n");
+        prompt.push_str(&format!("{}\n\n", locale::t(locale, "ai_polish_intro")));
         prompt.push_str(&content);
         prompt.push('\n');
 
         if let Some(tpl) = configs.ai_template.as_deref() {
-            prompt.push_str("\n请按照以下要求优化：\n");
+            prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_polish_optimize")));
             prompt.push_str(tpl.trim());
         } else {
-            prompt.push_str("\n要求：\n");
-            prompt.push_str("- 保留原有的所有工作内容，包括用户补充的非开发任务\n");
-            prompt.push_str("- 用第一人称描述\n");
-            prompt.push_str("- 语言简洁专业\n");
-            prompt.push_str("- 保持 Markdown 格式\n");
-            prompt.push_str("- 只输出润色后的日报正文，不需要额外说明\n");
+            prompt.push_str(&format!("\n{}:\n", locale::t(locale, "ai_polish_requirements")));
+            prompt.push_str(&format!("{}\n", locale::t(locale, "ai_polish_retain")));
+            prompt.push_str(&format!("{}\n", locale::t(locale, "ai_polish_first_person")));
+            prompt.push_str(&format!("{}\n", locale::t(locale, "ai_polish_concise")));
+            prompt.push_str(&format!("{}\n", locale::t(locale, "ai_polish_markdown")));
+            prompt.push_str(&format!("{}\n", locale::t(locale, "ai_polish_output_only")));
         }
+
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_language_hint")));
 
         let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
         client.generate(&prompt)

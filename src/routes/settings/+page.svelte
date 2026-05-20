@@ -208,7 +208,7 @@
 								class="flex-1"
 								readonly
 							/>
-							<Button variant="outline" size="icon" onclick={pickWorkDir} title="选择文件夹">
+							<Button variant="outline" size="icon" onclick={pickWorkDir} title={i18n.t('common.selectFolder')}>
 								<Folder class="h-4 w-4" />
 							</Button>
 						</div>
