@@ -6,7 +6,7 @@ use crate::ai;
 use crate::config::ConfigDb;
 use crate::project::{DbConnection, Project};
 use crate::locale;
-use crate::report::{run_git_log, CommitInfo, collect_weekly_daily_reports, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding, get_week_start, parse_date, format_date, next_date, prev_date, check_git_available};
+use crate::report::{run_git_log, CommitInfo, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding, get_week_start, parse_date, format_date, next_date, prev_date, check_git_available};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryReport {
@@ -104,7 +104,7 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
     prompt
 }
 
-fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)], recent_weekly_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
+fn build_weekly_summary_prompt(week_start: &str, week_end: &str, daily_reports: &[(String, String)], recent_weekly_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
     let mut prompt = format!(
         "{}\n\n{}: {} ~ {}\n\n",
         locale::t(locale, "ai_summary_weekly_intro"),
@@ -113,19 +113,9 @@ fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_report
         week_end
     );
 
-    let mut has_any = false;
-    for (project, daily_reports) in projects_reports {
-        prompt.push_str(&format!("## {}\n", project.name));
-        if daily_reports.is_empty() {
-            prompt.push_str(locale::t(locale, "ai_summary_no_daily_reports"));
-            prompt.push('\n');
-        } else {
-            has_any = true;
-            for (date, content) in daily_reports {
-                prompt.push_str(&format!("### {}\n{}", date, content));
-                prompt.push('\n');
-            }
-        }
+    for (date, content) in daily_reports {
+        prompt.push_str(&format!("## {}\n", date));
+        prompt.push_str(content);
         prompt.push('\n');
     }
 
@@ -151,7 +141,7 @@ fn build_weekly_summary_prompt(week_start: &str, week_end: &str, projects_report
         prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_summary_weekly_avoid_duplicate")));
     }
 
-    if !has_any {
+    if daily_reports.is_empty() {
         prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_summary_weekly_empty_note")));
     }
 
@@ -222,6 +212,32 @@ fn collect_recent_weekly_summary_reports(
                 }
             }
         }
+    }
+
+    reports
+}
+
+fn collect_weekly_summary_reports(
+    app_handle: tauri::AppHandle,
+    week_start: &str,
+    week_end: &str,
+    work_dir: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut reports = Vec::new();
+    let Ok((mut y, mut m, mut d)) = parse_date(week_start) else { return reports; };
+    let Ok((end_y, end_m, end_d)) = parse_date(week_end) else { return reports; };
+
+    loop {
+        let date_str = format_date(y, m, d);
+        if let Ok(path) = summary_path(&date_str, work_dir, app_handle.clone()) {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                reports.push((date_str, content));
+            }
+        }
+        if y == end_y && m == end_m && d == end_d {
+            break;
+        }
+        (y, m, d) = next_date(y, m, d);
     }
 
     reports
@@ -309,26 +325,19 @@ fn format_summary_report(_date: &str, projects_commits: &[(Project, Vec<CommitIn
     lines.join("\n")
 }
 
-fn format_weekly_summary_report(week_start: &str, week_end: &str, projects_reports: &[(Project, Vec<(String, String)>)], locale: &str) -> String {
+fn format_weekly_summary_report(week_start: &str, week_end: &str, daily_reports: &[(String, String)], locale: &str) -> String {
     let mut lines = Vec::new();
     lines.push(format!("# {} ({} ~ {})", locale::t(locale, "summary_weekly_title"), week_start, week_end));
     lines.push(String::new());
 
-    let mut has_any = false;
-    for (project, daily_reports) in projects_reports {
-        if !daily_reports.is_empty() {
-            has_any = true;
-            lines.push(format!("## {}", project.name));
-            for (date, content) in daily_reports {
-                lines.push(format!("### {}", date));
-                lines.push(content.clone());
-            }
+    if daily_reports.is_empty() {
+        lines.push(locale::t(locale, "no_daily_reports_all_projects").to_string());
+    } else {
+        for (date, content) in daily_reports {
+            lines.push(format!("## {}", date));
+            lines.push(content.clone());
             lines.push(String::new());
         }
-    }
-
-    if !has_any {
-        lines.push(locale::t(locale, "no_daily_reports_all_projects").to_string());
     }
 
     lines.join("\n")
@@ -336,7 +345,7 @@ fn format_weekly_summary_report(week_start: &str, week_end: &str, projects_repor
 
 #[tauri::command]
 pub async fn generate_weekly_summary_report(
-    project_state: tauri::State<'_, DbConnection>,
+    _project_state: tauri::State<'_, DbConnection>,
     config_state: tauri::State<'_, ConfigDb>,
     app_handle: tauri::AppHandle,
     week_start: String,
@@ -345,15 +354,7 @@ pub async fn generate_weekly_summary_report(
     locale: Option<String>,
 ) -> Result<SummaryReport, String> {
     let locale = locale.as_deref().unwrap_or("zh");
-    let projects = crate::project::get_projects(project_state)?;
-
-    let mut projects_reports: Vec<(Project, Vec<(String, String)>)> = Vec::new();
-    let mut total_reports = 0;
-    for project in &projects {
-        let reports = collect_weekly_daily_reports(&project.path, &project.name, &week_start, &week_end, work_dir.as_deref());
-        total_reports += reports.len();
-        projects_reports.push((project.clone(), reports));
-    }
+    let daily_reports = collect_weekly_summary_reports(app_handle.clone(), &week_start, &week_end, work_dir.as_deref());
 
     let configs = crate::config::get_configs(config_state)?;
 
@@ -362,15 +363,15 @@ pub async fn generate_weekly_summary_report(
     let content = if let (Some(provider), Some(api_key), Some(model)) =
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
-        if total_reports == 0 {
-            format_weekly_summary_report(&week_start, &week_end, &projects_reports, locale)
+        if daily_reports.is_empty() {
+            format_weekly_summary_report(&week_start, &week_end, &daily_reports, locale)
         } else {
-            let prompt = build_weekly_summary_prompt(&week_start, &week_end, &projects_reports, &recent_weekly_reports, configs.ai_template.as_deref(), locale);
+            let prompt = build_weekly_summary_prompt(&week_start, &week_end, &daily_reports, &recent_weekly_reports, configs.ai_template.as_deref(), locale);
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
     } else {
-        format_weekly_summary_report(&week_start, &week_end, &projects_reports, locale)
+        format_weekly_summary_report(&week_start, &week_end, &daily_reports, locale)
     };
 
     let dir = weekly_summary_dir(work_dir.as_deref(), app_handle.clone())?.join(week_start.split('-').next().unwrap_or(""));
