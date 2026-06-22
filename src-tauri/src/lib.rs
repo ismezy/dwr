@@ -41,6 +41,7 @@ pub fn run() {
             report::save_report,
             report::save_weekly_report,
             report::polish_report,
+            report::refine_report,
             summary::generate_summary_report,
             summary::generate_weekly_summary_report,
             summary::get_summary_report_list,

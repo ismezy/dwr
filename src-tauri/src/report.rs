@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::process::Command;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 use crate::ai;
 use crate::config::ConfigDb;
@@ -91,12 +96,22 @@ pub fn find_report_file(base_dir: &std::path::Path, date: &str) -> Option<std::p
 }
 
 fn resolve_git_cmd(git_path: Option<&str>) -> std::process::Command {
-    if let Some(path) = git_path {
+    let mut cmd = if let Some(path) = git_path {
         if !path.is_empty() {
-            return Command::new(path);
+            Command::new(path)
+        } else {
+            Command::new("git")
         }
-    }
-    Command::new("git")
+    } else {
+        Command::new("git")
+    };
+
+    // Suppress the flashing console window on Windows when the GUI app spawns
+    // the git child process. CREATE_NO_WINDOW = 0x08000000.
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    cmd
 }
 
 pub fn check_git_available(git_path: Option<&str>) -> Result<(), String> {
@@ -829,4 +844,46 @@ pub async fn polish_report(
     } else {
         Ok(content)
     }
+}
+
+#[tauri::command]
+pub async fn refine_report(
+    state: tauri::State<'_, ConfigDb>,
+    content: String,
+    instruction: String,
+    locale: Option<String>,
+) -> Result<String, String> {
+    let locale = locale.as_deref().unwrap_or("zh");
+    let instruction = instruction.trim();
+    if instruction.is_empty() {
+        return Ok(content);
+    }
+
+    let configs = crate::config::get_configs(state)?;
+    let (provider, api_key, model) = match (
+        configs.ai_provider.as_deref(),
+        configs.ai_api_key.as_deref(),
+        configs.ai_model.as_deref(),
+    ) {
+        (Some(p), Some(k), Some(m)) => (p, k, m),
+        _ => return Err("AI not configured".to_string()),
+    };
+
+    let mut prompt = String::new();
+    prompt.push_str(&format!("{}\n\n", locale::t(locale, "ai_refine_intro")));
+    prompt.push_str(&format!("## {}\n", locale::t(locale, "ai_refine_original")));
+    prompt.push_str(&content);
+    prompt.push_str("\n\n");
+    prompt.push_str(&format!("## {}\n", locale::t(locale, "ai_refine_user_instruction")));
+    prompt.push_str(instruction);
+    prompt.push_str("\n\n");
+    prompt.push_str(&format!("{}:\n", locale::t(locale, "ai_refine_requirements")));
+    prompt.push_str(&format!("{}\n", locale::t(locale, "ai_refine_retain")));
+    prompt.push_str(&format!("{}\n", locale::t(locale, "ai_refine_keep_structure")));
+    prompt.push_str(&format!("{}\n", locale::t(locale, "ai_refine_markdown")));
+    prompt.push_str(&format!("{}\n", locale::t(locale, "ai_refine_output_only")));
+    prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_language_hint")));
+
+    let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
+    client.generate(&prompt)
 }

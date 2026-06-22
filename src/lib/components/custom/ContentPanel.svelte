@@ -7,7 +7,8 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
-	import { FileText, User, Folder, Hash, RefreshCw, Loader, Eye, PenLine, Save, Wand2 } from '@lucide/svelte';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
+	import { FileText, User, Folder, Hash, RefreshCw, Loader, Eye, PenLine, Save, Wand2, Sparkles } from '@lucide/svelte';
 	import { marked } from 'marked';
 	import { cn } from '$lib/utils';
 
@@ -16,6 +17,10 @@
 	let editContent = $state('');
 	let saving = $state(false);
 	let polishing = $state(false);
+	let refining = $state(false);
+	let refineOpen = $state(false);
+	let refineInstruction = $state('');
+	let refineError = $state('');
 
 	function isAiConfigured(): boolean {
 		const cfg = configStore.configs;
@@ -94,6 +99,37 @@
 		}
 	}
 
+	function openRefine() {
+		if (!editContent.trim()) return;
+		if (!isAiConfigured()) {
+			showAiAlert = true;
+			return;
+		}
+		refineInstruction = '';
+		refineError = '';
+		refineOpen = true;
+	}
+
+	async function handleRefine() {
+		const instruction = refineInstruction.trim();
+		if (!instruction) {
+			refineError = i18n.t('content.refineEmpty');
+			return;
+		}
+		refining = true;
+		refineError = '';
+		try {
+			const refined = await reportsStore.refine(editContent, instruction);
+			editContent = refined;
+			refineOpen = false;
+		} catch (e) {
+			console.error('failed to refine report:', e);
+			refineError = String(e);
+		} finally {
+			refining = false;
+		}
+	}
+
 	async function handleRegenerate() {
 		const project = projectsStore.selected;
 		if (!project) return;
@@ -159,7 +195,7 @@
 						size="sm"
 						class="h-8 px-2 text-xs"
 						onclick={cancelEdit}
-						disabled={saving || polishing}
+						disabled={saving || polishing || refining}
 					>
 						{i18n.t('common.cancel')}
 					</Button>
@@ -168,7 +204,7 @@
 						size="sm"
 						class="h-8 px-2 text-xs"
 						onclick={handlePolish}
-						disabled={saving || polishing}
+						disabled={saving || polishing || refining}
 					>
 						{#if polishing}
 							<Loader class="h-3 w-3 mr-1 animate-spin" />
@@ -178,11 +214,25 @@
 						{polishing ? i18n.t('content.polishing') : i18n.t('content.polish')}
 					</Button>
 					<Button
+						variant="secondary"
+						size="sm"
+						class="h-8 px-2 text-xs"
+						onclick={openRefine}
+						disabled={saving || polishing || refining || !editContent.trim()}
+					>
+						{#if refining}
+							<Loader class="h-3 w-3 mr-1 animate-spin" />
+						{:else}
+							<Sparkles class="h-3 w-3 mr-1" />
+						{/if}
+						{refining ? i18n.t('content.refining') : i18n.t('content.refine')}
+					</Button>
+					<Button
 						variant="default"
 						size="sm"
 						class="h-8 px-2 text-xs"
 						onclick={handleSave}
-						disabled={saving || polishing}
+						disabled={saving || polishing || refining}
 					>
 						<Save class="h-3 w-3 mr-1" />
 						{saving ? i18n.t('common.saving') : i18n.t('common.save')}
@@ -327,3 +377,43 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<Dialog.Root bind:open={refineOpen}>
+	<Dialog.Content class="sm:max-w-lg">
+		<Dialog.Header>
+			<Dialog.Title>{i18n.t('content.refineTitle')}</Dialog.Title>
+			<Dialog.Description>
+				{i18n.t('content.refineDescription')}
+			</Dialog.Description>
+		</Dialog.Header>
+		<div class="grid gap-2 py-2">
+			<Textarea
+				bind:value={refineInstruction}
+				placeholder={i18n.t('content.refinePlaceholder')}
+				class="min-h-[120px] text-sm"
+				disabled={refining}
+			/>
+			{#if refineError}
+				<div class="text-xs text-destructive">{refineError}</div>
+			{/if}
+		</div>
+		<Dialog.Footer>
+			<Button
+				variant="outline"
+				onclick={() => (refineOpen = false)}
+				disabled={refining}
+			>
+				{i18n.t('common.cancel')}
+			</Button>
+			<Button onclick={handleRefine} disabled={refining || !refineInstruction.trim()}>
+				{#if refining}
+					<Loader class="h-3 w-3 mr-1 animate-spin" />
+					{i18n.t('content.refining')}
+				{:else}
+					<Sparkles class="h-3 w-3 mr-1" />
+					{i18n.t('content.refineApply')}
+				{/if}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

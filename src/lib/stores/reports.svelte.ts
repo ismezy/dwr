@@ -270,6 +270,14 @@ function createReportsStore() {
 		return await invoke<string>('polish_report', { content, locale: i18n.locale });
 	}
 
+	async function refine(content: string, instruction: string) {
+		return await invoke<string>('refine_report', {
+			content,
+			instruction,
+			locale: i18n.locale,
+		});
+	}
+
 	function selectSummaryDate(date: string | null) {
 		summarySelectedDate = date;
 		selectedDate = null;
@@ -316,6 +324,7 @@ function createReportsStore() {
 		saveReport,
 		saveSummaryReport,
 		polish,
+		refine,
 	};
 }
 
