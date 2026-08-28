@@ -8,7 +8,7 @@
 
 ### 简介
 
-**DWR（Daily Work Report）** 是一款桌面端工具软件，帮助程序员根据项目的 Git 提交记录自动生成工作日报和周报。只需选择本地 Git 仓库并指定日期范围，DWR 即可解析 commit 信息，通过 AI 汇总并生成结构化的日/周报内容，支持编辑、AI 润色和保存。
+**DWR（Daily Work Report）** 是一款桌面端工具软件，帮助程序员根据项目的 Git 提交记录或文档目录变更自动生成工作日报和周报。项目以树型结构管理：项目下可挂载多个代码仓库或文档目录，按日期解析 commit 或文档变更，通过 AI 汇总并生成结构化的日/周报内容，支持编辑、AI 润色、微调和保存。
 
 ### 技术栈
 
@@ -25,13 +25,17 @@
 ### 功能特性
 
 - **日报 / 周报切换** — 支持生成单日日报或整周周报，可自定义每周第一天
-- **三种生成模式** — 按项目生成、跨项目汇总生成、同时生成项目和汇总
-- **AI 智能生成** — 调用 AI（OpenAI / Anthropic / Gemini / DeepSeek / 本地模型）根据 Git 提交记录自动生成报告
-- **AI 润色** — 对生成的报告内容进行一键 AI 润色优化
+- **三种生成模式** — 汇总（默认选中并记住上次选择）、按项目、全部
+- **项目树型管理** — 项目（仅名称 + 编号）下可挂载多个项目目录，选中项目可批量生成其所有目录的报告
+- **代码目录（Git 仓库）** — 读取 commit 记录生成报告，支持项目级 Git 用户名
+- **按分支生成** — 代码目录可限定一个或多个本地分支（可搜索的多选列表），区分同一仓库不同分支上的工作
+- **文档目录** — 扫描文档目录当天的文件变更（docx / xlsx / pptx 自动提取文本），基于快照 diff 生成文档工作日报
+- **AI 智能生成** — 调用 AI（OpenAI / Anthropic / Gemini / DeepSeek / 本地模型）根据提交记录自动生成报告
+- **AI 润色与微调** — 一键润色优化内容，或输入修改要求让 AI 定向调整报告
 - **自定义模板** — 可在设置中填写对报告的自定义要求（风格、格式、内容等）
 - **历史记录管理** — 按年/月树形结构浏览已生成的日报/周报，点击即可查看
 - **预览与编辑** — 支持 Markdown 预览和文本编辑，编辑后可保存
-- **多项目管理** — 可同时配置多个 Git 仓库，分别或汇总生成报告
+- **数据自动迁移** — 基于版本号的数据迁移机制，旧版本平铺项目数据启动时自动升级为树型结构
 - **多语言支持** — 界面支持中文 / 英文切换
 
 ### 使用说明
@@ -44,19 +48,19 @@
 2. **配置 AI（首次使用）**  
    进入「设置」→「AI 配置」，选择 AI 提供商并填写 API Key 和模型名称。支持 OpenAI、Anthropic、Google Gemini、DeepSeek 以及兼容 OpenAI 格式的本地/自定义服务。
 
-3. **添加项目**  
-   点击「添加项目」，通过系统对话框选择本地 Git 仓库文件夹，可配置项目级 Git 用户名。
+3. **添加项目与目录**  
+   点击「添加项目」，只需填写项目名称和编号；然后在项目行上点击「添加目录」，选择类型（代码 / 文档）和文件夹。代码目录可配置 Git 用户名和一个或多个分支；目录可随时修改所属项目。
 
 4. **设置工作目录**  
    在「设置」→「通用」中指定工作目录，用于保存生成的报告文件。
 
 5. **生成报告**  
    - 切换日报/周报模式
-   - 选择生成模式：按项目 / 汇总 / 全部
+   - 选择生成模式：汇总（默认）/ 按项目 / 全部
    - 点击「生成今天日报」或「生成本周周报」，也可选择昨天、上周、指定日期等
 
 6. **查看、编辑与润色**  
-   生成的报告支持 Markdown 预览和文本编辑，编辑时可使用「润色」按钮调用 AI 优化内容，最后点击「保存」。
+   生成的报告支持 Markdown 预览和文本编辑，编辑时可使用「润色」或「微调」按钮调用 AI 优化内容，最后点击「保存」。
 
 ### 构建
 
@@ -80,7 +84,7 @@ yarn tauri build
 
 ### Introduction
 
-**DWR (Daily Work Report)** is a desktop tool that helps developers automatically generate daily and weekly work reports from Git commit history. Simply select a local Git repository and specify a date range, and DWR will parse the commits, summarize them via AI, and produce a structured report ready to edit, polish, and save.
+**DWR (Daily Work Report)** is a desktop tool that helps developers automatically generate daily and weekly work reports from Git commit history or document folder changes. Projects are organized as a tree: each project can hold multiple code repositories or document directories. DWR parses commits or document changes for a given date, summarizes them via AI, and produces a structured report ready to edit, polish, refine, and save.
 
 ### Tech Stack
 
@@ -97,13 +101,17 @@ yarn tauri build
 ### Features
 
 - **Daily / Weekly Report** — Generate single-day reports or full-week summaries with customizable week start day
-- **Three Generation Modes** — Per-project, cross-project summary, or both at once
-- **AI-Powered Generation** — Uses AI (OpenAI / Anthropic / Gemini / DeepSeek / local models) to generate reports from Git commits
-- **AI Polish** — One-click AI polishing to refine and optimize report content
+- **Three Generation Modes** — Summary (default, with your last choice remembered), per-project, or both at once
+- **Project Tree** — A project (name + code only) holds multiple directories; selecting a project generates reports for all its directories at once
+- **Code Directories (Git Repos)** — Generate reports from commit history with optional per-directory Git username
+- **Branch Filtering** — Restrict a code directory to one or more local branches via a searchable multi-select, separating work done on different branches of the same repository
+- **Document Directories** — Scan same-day file changes in a docs folder (text extraction for docx / xlsx / pptx) and generate reports from snapshot diffs
+- **AI-Powered Generation** — Uses AI (OpenAI / Anthropic / Gemini / DeepSeek / local models) to generate reports from commits
+- **AI Polish & Refine** — One-click polishing, or give custom instructions for targeted AI adjustments
 - **Custom Templates** — Define custom requirements for reports (style, format, content) in settings
 - **History Management** — Browse generated reports in a year/month tree structure
 - **Preview & Edit** — Markdown preview and text editing with save support
-- **Multi-Project** — Configure multiple Git repositories and generate reports individually or in summary
+- **Automatic Data Migration** — Versioned migrations upgrade legacy flat project data to the tree structure on startup
 - **Multi-Language** — UI supports Chinese / English switching
 
 ### Usage
@@ -116,19 +124,19 @@ yarn tauri build
 2. **Configure AI (first time)**  
    Go to "Settings" → "AI", select a provider and enter your API Key and model name. Supports OpenAI, Anthropic, Google Gemini, DeepSeek, and local/custom services compatible with the OpenAI API format.
 
-3. **Add a project**  
-   Click "Add Project" and select a local Git repository folder via the system dialog. You can configure a project-level Git username.
+3. **Add projects and directories**  
+   Click "Add Project" and enter just a name and an optional code; then click "Add Directory" on the project row to pick a type (Code / Docs) and folder. Code directories can have a Git username and one or more branches; a directory's parent project can be changed at any time.
 
 4. **Set work directory**  
    In "Settings" → "General", specify the work directory where generated reports will be saved.
 
 5. **Generate a report**  
    - Switch between Daily / Weekly mode
-   - Select generation mode: By Project / Summary / All
+   - Select generation mode: Summary (default) / By Project / All
    - Click "Generate Today's Report" or "Generate Weekly Report", or choose yesterday, last week, a custom date, etc.
 
 6. **View, edit, and polish**  
-   Generated reports support Markdown preview and text editing. Use the "Polish" button to refine content with AI, then click "Save".
+   Generated reports support Markdown preview and text editing. Use the "Polish" or "Refine" buttons to improve content with AI, then click "Save".
 
 ### Build
 
