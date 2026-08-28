@@ -255,15 +255,44 @@ pub async fn generate_summary_report(
     let locale = locale.as_deref().unwrap_or("zh");
     let configs = crate::config::get_configs(config_state)?;
     let git_path = configs.git_path.as_deref();
-    check_git_available(git_path)?;
 
-    // 获取所有项目
-    let projects = crate::project::get_projects(project_state)?;
+    // 获取所有项目目录（过滤掉树型结构中的项目节点，它们没有路径）
+    let projects: Vec<Project> = crate::project::get_projects(project_state)?
+        .into_iter()
+        .filter(|p| !p.path.is_empty())
+        .collect();
 
-    // 收集每个项目的提交
+    // 仅当存在 code 类型项目时才要求 Git 可用
+    if projects.iter().any(|p| p.project_type != "docs") {
+        check_git_available(git_path)?;
+    }
+
+    // 收集每个项目的提交（docs 项目收集文档变更）
     let mut projects_commits: Vec<(Project, Vec<CommitInfo>)> = Vec::new();
     let mut total_commits = 0;
     for project in &projects {
+        if project.project_type == "docs" {
+            let changes = crate::docs::collect_doc_changes(&project.path, &project.name, &date, work_dir.as_deref());
+            let commits: Vec<CommitInfo> = changes
+                .iter()
+                .map(|c| {
+                    let label = match c.change_type.as_str() {
+                        "modified" => locale::t(locale, "docs_summary_modified"),
+                        "modified_no_baseline" => locale::t(locale, "docs_summary_no_baseline"),
+                        _ => locale::t(locale, "docs_summary_unsupported"),
+                    };
+                    CommitInfo {
+                        hash: String::new(),
+                        message: format!("{} {}", label, c.rel_path),
+                        date: date.clone(),
+                        files_changed: vec![c.rel_path.clone()],
+                    }
+                })
+                .collect();
+            total_commits += commits.len();
+            projects_commits.push((project.clone(), commits));
+            continue;
+        }
         let git_user = project.git_user_name.as_deref();
         let since = format!("{} 00:00:00", date);
         let until = format!("{} 23:59:59", date);

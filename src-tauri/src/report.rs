@@ -32,8 +32,7 @@ pub struct ReportMeta {
     pub path: String,
 }
 
-fn report_dir(project_path: &str, project_name: &str, work_dir: Option<&str>) -> PathBuf {
-    if let Some(wd) = work_dir {
+pub(crate) fn report_dir(project_path: &str, project_name: &str, work_dir: Option<&str>) -> PathBuf {    if let Some(wd) = work_dir {
         PathBuf::from(wd).join(project_name)
     } else {
         PathBuf::from(project_path).join(".dwr").join("reports")
@@ -220,6 +219,102 @@ fn format_report(date: &str, project_name: &str, commits: &[CommitInfo], locale:
     }
 
     lines.join("\n")
+}
+
+fn build_docs_changes_text(changes: &[crate::docs::DocChange], locale: &str) -> String {
+    if changes.is_empty() {
+        return locale::t(locale, "no_doc_changes_today").to_string();
+    }
+    let mut text = String::new();
+    for change in changes {
+        match change.change_type.as_str() {
+            "modified" => {
+                text.push_str(&format!("### {}\n", change.rel_path));
+                if !change.detail.is_empty() {
+                    text.push_str(&change.detail);
+                    text.push('\n');
+                }
+            }
+            "modified_no_baseline" => {
+                text.push_str(&format!(
+                    "### {} {}\n",
+                    change.rel_path,
+                    locale::t(locale, "docs_change_no_baseline")
+                ));
+                if !change.detail.is_empty() {
+                    text.push_str(&change.detail);
+                    text.push('\n');
+                }
+            }
+            _ => {
+                text.push_str(&format!(
+                    "- {} {}\n",
+                    change.rel_path,
+                    locale::t(locale, "docs_change_unsupported")
+                ));
+            }
+        }
+    }
+    text
+}
+
+fn format_docs_report(date: &str, project_name: &str, changes: &[crate::docs::DocChange], locale: &str) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("# {} {} - {}", date, locale::t(locale, "daily_report_title"), project_name));
+    lines.push(String::new());
+
+    if changes.is_empty() {
+        lines.push(locale::t(locale, "no_doc_changes_today").to_string());
+    } else {
+        lines.push(format!("## {} ({})", locale::t(locale, "docs_changes_label"), changes.len()));
+        lines.push(String::new());
+        for change in changes {
+            lines.push(format!("- {}", change.rel_path));
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn build_docs_ai_prompt(date: &str, project_name: &str, changes: &[crate::docs::DocChange], recent_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
+    let changes_text = build_docs_changes_text(changes, locale);
+
+    let mut prompt = format!(
+        "{}\n\n{}: {}\n{}: {}\n\n{}:\n{}",
+        locale::t(locale, "ai_docs_intro"),
+        locale::t(locale, "ai_daily_project"),
+        project_name,
+        locale::t(locale, "ai_daily_date"),
+        date,
+        locale::t(locale, "ai_docs_changes"),
+        changes_text
+    );
+
+    if !recent_reports.is_empty() {
+        prompt.push_str(&format!("\n\n{}\n", locale::t(locale, "ai_recent_reports_note")));
+        for (report_date, content) in recent_reports {
+            prompt.push_str(&format!("## {}\n{}\n", report_date, content));
+        }
+    }
+
+    if let Some(tpl) = template {
+        prompt.push('\n');
+        prompt.push_str(tpl.trim());
+    } else {
+        prompt.push_str(&format!("\n{}:\n", locale::t(locale, "ai_requirements")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_first_person")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_categorize")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_concise")));
+        prompt.push_str(&format!("{}\n", locale::t(locale, "ai_markdown_only")));
+    }
+
+    if !recent_reports.is_empty() {
+        prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_avoid_duplicate_note")));
+    }
+
+    prompt.push_str(&format!("\n{}\n", locale::t(locale, "ai_language_hint")));
+
+    prompt
 }
 
 pub fn is_leap_year(year: i32) -> bool {
@@ -539,9 +634,15 @@ pub async fn generate_daily_report(
     date: String,
     work_dir: Option<String>,
     locale: Option<String>,
+    project_type: Option<String>,
 ) -> Result<DailyReport, String> {
     let locale = locale.as_deref().unwrap_or("zh");
     let configs = crate::config::get_configs(state)?;
+
+    if project_type.as_deref() == Some("docs") {
+        return generate_docs_daily_report(&configs, &project_path, &project_name, &date, work_dir.as_deref(), locale);
+    }
+
     let git_path = configs.git_path.as_deref();
     check_git_available(git_path)?;
 
@@ -575,9 +676,47 @@ pub async fn generate_daily_report(
     Ok(DailyReport { date, content })
 }
 
+fn generate_docs_daily_report(
+    configs: &crate::config::ConfigData,
+    project_path: &str,
+    project_name: &str,
+    date: &str,
+    work_dir: Option<&str>,
+    locale: &str,
+) -> Result<DailyReport, String> {
+    let changes = crate::docs::collect_doc_changes(project_path, project_name, date, work_dir);
+
+    let week_start_day = configs.week_start_day.unwrap_or(1);
+    let recent_reports = collect_this_week_daily_reports(project_path, project_name, date, week_start_day, work_dir);
+
+    let content = if let (Some(provider), Some(api_key), Some(model)) =
+        (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
+    {
+        if changes.is_empty() {
+            format_docs_report(date, project_name, &changes, locale)
+        } else {
+            let prompt = build_docs_ai_prompt(date, project_name, &changes, &recent_reports, configs.ai_template.as_deref(), locale);
+            let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
+            client.generate(&prompt)?
+        }
+    } else {
+        format_docs_report(date, project_name, &changes, locale)
+    };
+
+    let path = report_path(project_path, project_name, date, work_dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create report dir: {}", e))?;
+    }
+    std::fs::write(&path, &content).map_err(|e| format!("failed to write report: {}", e))?;
+
+    // 日报生成成功后更新快照，作为下次 diff 的基线
+    crate::docs::update_snapshots(project_path, project_name, work_dir, &changes);
+
+    Ok(DailyReport { date: date.to_string(), content })
+}
+
 #[tauri::command]
-pub async fn generate_weekly_report(
-    state: tauri::State<'_, ConfigDb>,
+pub async fn generate_weekly_report(    state: tauri::State<'_, ConfigDb>,
     project_path: String,
     project_name: String,
     _git_user_name: Option<String>,

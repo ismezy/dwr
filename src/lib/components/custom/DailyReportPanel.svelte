@@ -8,7 +8,7 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
-	import { CalendarDays, FileText, Sparkles, Loader, ChevronDown, ChevronRight, FolderOpen, Folder } from '@lucide/svelte';
+	import { CalendarDays, FileText, Sparkles, Loader, ChevronDown, ChevronRight, FolderOpen, Folder, FolderGit2 } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 	import * as Calendar from '$lib/components/ui/calendar/index.js';
 	import { CalendarDate, type DateValue } from '@internationalized/date';
@@ -22,6 +22,8 @@
 	let expandedYears = $state<Set<string>>(new Set());
 	let expandedMonths = $state<Set<string>>(new Set());
 	let generateMenuEl = $state<HTMLDivElement | null>(null);
+
+	let activeDirs = $derived(projectsStore.selectedDirs);
 
 	function calendarValueToStr(value: DateValue | undefined): string {
 		if (!value) return '';
@@ -83,23 +85,22 @@
 	}
 
 	async function handleGenerateProject(date: string, weekEnd?: string) {
-		const project = projectsStore.selected;
-		if (!project) return;
+		const dirs = projectsStore.selectedDirs;
+		if (dirs.length === 0) return;
 
 		if (!isAiConfigured()) {
 			showAiAlert = true;
 			return;
 		}
 
-		const gitUser = projectsStore.resolveGitUserName(project);
-		await reportsStore.generateReport(
-			project.path,
-			project.name,
-			gitUser,
-			date,
-			configStore.configs.work_dir,
-			weekEnd
-		);
+		for (const dir of dirs) {
+			await reportsStore.generateReport(
+				dir.id,
+				date,
+				configStore.configs.work_dir,
+				weekEnd
+			);
+		}
 	}
 
 	async function handleGenerateSummary(date: string, weekEnd?: string) {
@@ -119,13 +120,9 @@
 			showAiAlert = true;
 			return;
 		}
-		const project = projectsStore.selected;
-		if (project) {
-			const gitUser = projectsStore.resolveGitUserName(project);
+		for (const dir of projectsStore.selectedDirs) {
 			await reportsStore.generateReport(
-				project.path,
-				project.name,
-				gitUser,
+				dir.id,
 				date,
 				configStore.configs.work_dir,
 				weekEnd
@@ -139,7 +136,7 @@
 	}
 
 	function handleGenerate(date: string, weekEnd?: string) {
-		if (projectsStore.projects.length === 0) {
+		if (projectsStore.dirs.length === 0) {
 			showNoProjectAlert = true;
 			return;
 		}
@@ -167,12 +164,9 @@
 		goto('/settings');
 	}
 
-	async function handleSelect(date: string) {
-		const project = projectsStore.selected;
-		if (!project) return;
+	async function handleSelect(dirId: string, date: string) {
 		await reportsStore.readReport(
-			project.path,
-			project.name,
+			dirId,
 			date,
 			configStore.configs.work_dir
 		);
@@ -288,7 +282,7 @@
 	// Auto expand current year/month when reports change
 	$effect(() => {
 		const _period = reportsStore.reportPeriod;
-		const _reports = reportsStore.reports;
+		const _reports = Object.values(reportsStore.reportsByDir).flat();
 		const _summary = reportsStore.summaryReports;
 
 		const today = getTodayStr();
@@ -346,11 +340,9 @@
 	});
 
 	$effect(() => {
-		const project = projectsStore.selected;
-		if (project) {
-			reportsStore.loadReports(project.path, project.name, configStore.configs.work_dir);
-			reportsStore.selectDate(null);
-		}
+		const dirs = projectsStore.selectedDirs;
+		reportsStore.loadReportsForDirs(dirs, configStore.configs.work_dir);
+		reportsStore.selectDate(null);
 	});
 
 	$effect(() => {
@@ -362,9 +354,9 @@
 	$effect(() => {
 		// Reload when report period changes
 		const period = reportsStore.reportPeriod;
-		const project = projectsStore.selected;
-		if (project) {
-			reportsStore.loadReports(project.path, project.name, configStore.configs.work_dir);
+		const dirs = projectsStore.selectedDirs;
+		if (dirs.length > 0) {
+			reportsStore.loadReportsForDirs(dirs, configStore.configs.work_dir);
 		}
 		if (reportsStore.mode === 'summary' || reportsStore.mode === 'all') {
 			reportsStore.loadSummaryReports(configStore.configs.work_dir);
@@ -581,9 +573,25 @@
 									{projectsStore.selected.name}
 								</div>
 							{/if}
+							{#if activeDirs.length === 0}
+								<div class="text-xs text-muted-foreground text-center py-4 px-2">
+									{i18n.t('project.emptyDirHint')}
+								</div>
+							{/if}
+							{#each activeDirs as dir (dir.id)}
+								{#if activeDirs.length > 1}
+									<div class="px-2 py-1 text-xs font-medium text-muted-foreground flex items-center gap-1.5 mt-1">
+										{#if dir.project_type === 'docs'}
+											<FileText class="h-3.5 w-3.5 shrink-0" />
+										{:else}
+											<FolderGit2 class="h-3.5 w-3.5 shrink-0" />
+										{/if}
+										<span class="truncate">{dir.name}</span>
+									</div>
+								{/if}
 							<div class="space-y-0.5 mt-1">
 								{#if reportsStore.reportPeriod === 'weekly'}
-									{#each groupWeeklyReports(reportsStore.reports) as yearGroup}
+									{#each groupWeeklyReports(reportsStore.reportsByDir[dir.id] ?? []) as yearGroup}
 										<div>
 											<button
 												class="w-full flex items-center gap-1 px-2 py-1 text-sm font-medium hover:bg-accent/50 rounded-md transition-colors"
@@ -604,11 +612,11 @@
 														<button
 															class={cn(
 																'w-full text-left rounded-md px-3 py-1.5 transition-colors flex items-center gap-2 text-sm',
-																reportsStore.selectedDate === report.date
+																reportsStore.selectedDirId === dir.id && reportsStore.selectedDate === report.date
 																	? 'bg-accent text-accent-foreground'
 																	: 'hover:bg-accent/50 text-foreground'
 															)}
-															onclick={() => handleSelect(report.date)}
+															onclick={() => handleSelect(dir.id, report.date)}
 														>
 															<FileText class="h-3.5 w-3.5 shrink-0 opacity-60" />
 															<span>{report.date}</span>
@@ -623,7 +631,7 @@
 										</div>
 									{/each}
 								{:else}
-									{#each groupDailyReports(reportsStore.reports) as yearGroup}
+									{#each groupDailyReports(reportsStore.reportsByDir[dir.id] ?? []) as yearGroup}
 										<div>
 											<button
 												class="w-full flex items-center gap-1 px-2 py-1 text-sm font-medium hover:bg-accent/50 rounded-md transition-colors"
@@ -661,11 +669,11 @@
 																		<button
 																			class={cn(
 																				'w-full text-left rounded-md px-3 py-1.5 transition-colors flex items-center gap-2 text-sm',
-																				reportsStore.selectedDate === report.date
+																				reportsStore.selectedDirId === dir.id && reportsStore.selectedDate === report.date
 																					? 'bg-accent text-accent-foreground'
 																					: 'hover:bg-accent/50 text-foreground'
 																				)}
-																			onclick={() => handleSelect(report.date)}
+																			onclick={() => handleSelect(dir.id, report.date)}
 																		>
 																			<FileText class="h-3.5 w-3.5 shrink-0 opacity-60" />
 																			<span>{report.date}</span>
@@ -685,6 +693,7 @@
 									{/each}
 								{/if}
 							</div>
+							{/each}
 						</div>
 					{:else if reportsStore.mode === 'per-project'}
 						<div class="flex-1 flex items-center justify-center">

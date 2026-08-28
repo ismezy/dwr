@@ -25,7 +25,7 @@
 		<div class="flex items-center gap-3">
 			<!-- Mode switcher -->
 			<div class="flex rounded-md border bg-background overflow-hidden">
-				{#each [{k: 'per-project' as const, l: i18n.t('dailyReport.modePerProject')}, {k: 'summary' as const, l: i18n.t('dailyReport.modeSummary')}, {k: 'all' as const, l: i18n.t('dailyReport.modeAll')}] as item}
+				{#each [{k: 'summary' as const, l: i18n.t('dailyReport.modeSummary')}, {k: 'per-project' as const, l: i18n.t('dailyReport.modePerProject')}, {k: 'all' as const, l: i18n.t('dailyReport.modeAll')}] as item}
 					<button
 						class={cn(
 							'px-3 py-1 text-xs font-medium transition-colors',

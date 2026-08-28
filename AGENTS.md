@@ -36,7 +36,14 @@ dwr/
 ├── src-tauri/              # Tauri 后端（Rust）
 │   ├── src/
 │   │   ├── main.rs         # 程序入口
-│   │   └── lib.rs          # 核心逻辑、Command 定义
+│   │   ├── lib.rs          # 核心逻辑、Command 定义
+│   │   ├── project.rs      # 项目/目录树型 CRUD（parent_id 两级结构；目录含 project_type：code / docs）
+│   │   ├── report.rs       # 日报/周报生成（Git 提交与文档变更两条采集路径）
+│   │   ├── docs.rs         # docs 型项目：文档扫描、OOXML 文本提取、快照 diff
+│   │   ├── summary.rs      # 跨项目汇总日报/周报
+│   │   ├── config.rs       # 配置持久化
+│   │   ├── ai.rs           # AI 客户端
+│   │   └── locale.rs       # 后端文案（zh/en）
 │   ├── capabilities/       # 权限配置
 │   ├── icons/              # 应用图标
 │   ├── Cargo.toml          # Rust 依赖
@@ -145,8 +152,8 @@ i18n.setLocale('zh');  // 切换为中文
 ## 核心功能规范
 
 1. **仓库选择**: 通过 Tauri 的对话框 API 让用户选择本地文件夹路径。
-2. **提交解析**: 读取 `git log`，提取 commit message、author、date、changed files、diff stats。
-3. **日报生成**: 按日期/项目聚合 commit，过滤合并提交（merge commits），去重并生成可读的工作日报文本。
+2. **项目类型**: 项目分 `code`（Git 仓库）和 `docs`（文档目录）两种。code 项目读取 `git log`，提取 commit message、author、date、changed files、diff stats；docs 项目扫描目录内当天修改的文件（纯文本直读、docx/xlsx/pptx 提取文本、其余仅列名），与每文件最新一份快照（`.dwr/reports/snapshots/` 或工作目录下）做 diff 得出当天变更，**禁止**修改用户目录内容（快照除外）。
+3. **日报生成**: 按日期/项目聚合 commit 或文档变更，过滤合并提交（merge commits），去重并生成可读的工作日报文本。
 4. **输出格式**: 支持纯文本、Markdown，未来可扩展为直接复制到剪贴板或导出 `.md`/`.txt` 文件。
 5. **日期范围**: 默认今天，支持自定义起止日期。
 
@@ -179,6 +186,7 @@ i18n.setLocale('zh');  // 切换为中文
 - **跨平台**: 支持 Windows / macOS / Linux，路径处理使用 Rust 的 `std::path::PathBuf`，避免硬编码分隔符。
 - **性能**: Git 日志解析在 Rust 端完成，前端只负责展示，避免大仓库数据在前端处理导致卡顿。
 - **安全性**: 仅读取用户指定的 Git 仓库路径，不向外发送任何代码或日志信息。
+- **数据迁移**: 项目数据（`projects.db`）结构变更采用版本化迁移——递增 `src-tauri/src/project.rs` 中的 `DATA_VERSION`，并在 `migrate_data` 中追加对应版本的迁移分支（基于 `PRAGMA user_version`，启动时自动执行）。
 
 ## 依赖管理
 

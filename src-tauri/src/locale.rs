@@ -76,6 +76,15 @@ fn messages() -> &'static HashMap<&'static str, HashMap<&'static str, &'static s
         zh.insert("ai_language_hint", "请用中文回答。");
         zh.insert("weekly_report_suffix", "周报");
         zh.insert("summary_weekly_suffix", "汇总周报");
+        zh.insert("docs_changes_label", "文档变更");
+        zh.insert("no_doc_changes_today", "今日无文档变更记录。");
+        zh.insert("ai_docs_intro", "请根据以下当天文档的变更内容生成一份工作日报。变更内容来自文档与上一版本快照的对比（+ 为新增内容，- 为删除内容）；标注“无历史基线”的文档提供的是内容摘要，请推断其中可能属于当天的工作；标注“无法解析”的文件仅提供文件名。");
+        zh.insert("ai_docs_changes", "文档变更内容");
+        zh.insert("docs_change_no_baseline", "（无历史基线，以下为内容摘要）");
+        zh.insert("docs_change_unsupported", "（无法解析内容）");
+        zh.insert("docs_summary_modified", "修改文档");
+        zh.insert("docs_summary_no_baseline", "更新文档（无历史基线）");
+        zh.insert("docs_summary_unsupported", "修改文件（无法解析内容）");
         all.insert("zh", zh);
 
         let mut en = HashMap::new();
@@ -148,6 +157,15 @@ fn messages() -> &'static HashMap<&'static str, HashMap<&'static str, &'static s
         en.insert("ai_language_hint", "Please respond in English.");
         en.insert("weekly_report_suffix", "Weekly Report");
         en.insert("summary_weekly_suffix", "Weekly Summary");
+        en.insert("docs_changes_label", "Document Changes");
+        en.insert("no_doc_changes_today", "No document changes today.");
+        en.insert("ai_docs_intro", "Please generate a work daily report based on the following document changes from today. The changes are diffs against the previous snapshot of each document (+ for added content, - for removed content); documents marked \"no baseline\" provide a content excerpt instead — infer what might be today's work; files marked \"unparsable\" are listed by name only.");
+        en.insert("ai_docs_changes", "Document changes");
+        en.insert("docs_change_no_baseline", "(no baseline, content excerpt below)");
+        en.insert("docs_change_unsupported", "(content unparsable)");
+        en.insert("docs_summary_modified", "Modified document");
+        en.insert("docs_summary_no_baseline", "Updated document (no baseline)");
+        en.insert("docs_summary_unsupported", "Modified file (content unparsable)");
         all.insert("en", en);
 
         all

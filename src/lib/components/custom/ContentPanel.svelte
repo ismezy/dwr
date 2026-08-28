@@ -39,6 +39,12 @@
 		return !!reportsStore.summarySelectedDate;
 	}
 
+	// 当前内容所属的目录（优先取报告来源目录，其次取选中的目录节点）
+	let currentDir = $derived(
+		projectsStore.byId(reportsStore.selectedDirId) ??
+		(projectsStore.selected?.parent_id != null ? projectsStore.selected : null)
+	);
+
 	function renderedMarkdown() {
 		const content = currentContent();
 		if (!content) return '';
@@ -67,11 +73,11 @@
 				);
 				reportsStore.summaryContent = editContent;
 			} else {
-				const project = projectsStore.selected;
-				if (!project) return;
+				const dir = currentDir;
+				if (!dir) return;
 				await reportsStore.saveReport(
-					project.path,
-					project.name,
+					dir.path,
+					dir.name,
 					reportsStore.selectedDate!,
 					editContent,
 					configStore.configs.work_dir
@@ -131,8 +137,6 @@
 	}
 
 	async function handleRegenerate() {
-		const project = projectsStore.selected;
-		if (!project) return;
 		if (!currentDate()) return;
 
 		if (!isAiConfigured()) {
@@ -153,11 +157,10 @@
 				weekEnd
 			);
 		} else {
-			const gitUser = projectsStore.resolveGitUserName(project);
+			const dir = currentDir;
+			if (!dir) return;
 			await reportsStore.generateReport(
-				project.path,
-				project.name,
-				gitUser,
+				dir.id,
 				reportsStore.selectedDate!,
 				configStore.configs.work_dir,
 				weekEnd
@@ -185,7 +188,7 @@
 				{#if isSummaryActive()}
 					{reportsStore.reportPeriod === 'weekly' ? i18n.t('dailyReport.summaryTitleWeekly') : i18n.t('dailyReport.summaryTitle')}
 				{:else}
-					{#if i18n.locale === 'en'}{projectsStore.selected?.name ?? ''} {reportsStore.reportPeriod === 'weekly' ? i18n.t('content.weeklyReport') : i18n.t('content.dailyReport')}{:else}{projectsStore.selected?.name ?? ''}{reportsStore.reportPeriod === 'weekly' ? i18n.t('content.weeklyReport') : i18n.t('content.dailyReport')}{/if}
+					{#if i18n.locale === 'en'}{currentDir?.name ?? ''} {reportsStore.reportPeriod === 'weekly' ? i18n.t('content.weeklyReport') : i18n.t('content.dailyReport')}{:else}{currentDir?.name ?? ''}{reportsStore.reportPeriod === 'weekly' ? i18n.t('content.weeklyReport') : i18n.t('content.dailyReport')}{/if}
 				{/if}
 			</div>
 			<div class="flex items-center gap-2">
@@ -323,25 +326,27 @@
 						<span>{projectsStore.selected.code}</span>
 					</div>
 				{/if}
-				<div class="flex items-center gap-2">
-					<Folder class="h-4 w-4" />
-					<span class="truncate">{projectsStore.selected.path}</span>
-				</div>
-				<div class="flex items-center gap-2">
-					<User class="h-4 w-4" />
-					<span>
-						{i18n.t('config.gitUserName')}:
-						{#if projectsStore.selected.git_user_name}
-							{projectsStore.selected.git_user_name}
-							<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.project')})</span>
-						{:else if configStore.configs.git_user_name}
-							{configStore.configs.git_user_name}
-							<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.global')})</span>
-						{:else}
-							<span class="text-xs text-destructive">{i18n.t('content.gitUser.unconfigured')}</span>
-						{/if}
-					</span>
-				</div>
+				{#if projectsStore.selected.path}
+					<div class="flex items-center gap-2">
+						<Folder class="h-4 w-4" />
+						<span class="truncate">{projectsStore.selected.path}</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<User class="h-4 w-4" />
+						<span>
+							{i18n.t('config.gitUserName')}:
+							{#if projectsStore.selected.git_user_name}
+								{projectsStore.selected.git_user_name}
+								<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.project')})</span>
+							{:else if configStore.configs.git_user_name}
+								{configStore.configs.git_user_name}
+								<span class="text-xs text-muted-foreground/60">({i18n.t('content.gitUser.global')})</span>
+							{:else}
+								<span class="text-xs text-destructive">{i18n.t('content.gitUser.unconfigured')}</span>
+							{/if}
+						</span>
+					</div>
+				{/if}
 			</div>
 
 			<div class="rounded-lg border bg-card p-6">
