@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { open } from '@tauri-apps/plugin-dialog';
+	import { invoke } from '@tauri-apps/api/core';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -12,10 +13,11 @@
 		DialogFooter,
 	} from '$lib/components/ui/dialog/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
+	import * as Popover from '$lib/components/ui/popover/index.js';
 	import { projectsStore, type Project } from '$lib/stores/projects.svelte';
 	import { toastStore } from '$lib/stores/toast.svelte';
 	import { i18n } from '$lib/i18n';
-	import { Folder, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, ChevronDown, FolderGit2, FileText, FolderPlus } from '@lucide/svelte';
+	import { Folder, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, ChevronDown, FolderGit2, FileText, FolderPlus, Check, ChevronsUpDown } from '@lucide/svelte';
 	import { cn } from '$lib/utils';
 
 	function getInitialCollapsed(): boolean {
@@ -113,6 +115,11 @@
 	let dirName = $state('');
 	let dirPath = $state('');
 	let dirGitUserName = $state('');
+	let dirBranches = $state<string[]>([]);
+	let availableBranches = $state<string[]>([]);
+	let branchLoadFailed = $state(false);
+	let branchPopoverOpen = $state(false);
+	let branchFilter = $state('');
 	let dirType = $state<'code' | 'docs'>('code');
 	let dirParentId = $state<string>('');
 
@@ -126,11 +133,54 @@
 	let selectedParentLabel = $derived(
 		projectsStore.groups.find((g) => g.id === dirParentId)?.name ?? ''
 	);
+	// 可选分支 = 仓库分支 + 已保存的分支（防止仓库读取失败或分支被删后丢配置）
+	let branchOptions = $derived(
+		[...new Set([...availableBranches, ...dirBranches])]
+	);
+	// 模糊过滤（大小写不敏感的子串匹配）
+	let filteredBranches = $derived(
+		branchFilter.trim()
+			? branchOptions.filter((b) => b.toLowerCase().includes(branchFilter.trim().toLowerCase()))
+			: branchOptions
+	);
+
+	function toggleBranch(branch: string) {
+		dirBranches = dirBranches.includes(branch)
+			? dirBranches.filter((b) => b !== branch)
+			: [...dirBranches, branch];
+	}
+
+	async function loadBranches() {
+		branchLoadFailed = false;
+		const path = dirPath.trim();
+		if (!path) {
+			availableBranches = [];
+			return;
+		}
+		try {
+			availableBranches = await invoke<string[]>('list_branches', { projectPath: path });
+		} catch (e) {
+			console.error('failed to load branches:', e);
+			availableBranches = [];
+			branchLoadFailed = true;
+		}
+	}
+
+	$effect(() => {
+		if (dirDialogOpen && dirType === 'code' && dirPath) {
+			loadBranches();
+		}
+	});
 
 	function resetDirForm() {
 		dirName = '';
 		dirPath = '';
 		dirGitUserName = '';
+		dirBranches = [];
+		availableBranches = [];
+		branchLoadFailed = false;
+		branchPopoverOpen = false;
+		branchFilter = '';
 		dirType = 'code';
 		dirParentId = '';
 		editingDirId = null;
@@ -149,6 +199,7 @@
 		dirName = dir.name;
 		dirPath = dir.path;
 		dirGitUserName = dir.git_user_name ?? '';
+		dirBranches = dir.branch ? dir.branch.split(',').map((b) => b.trim()).filter(Boolean) : [];
 		dirType = dir.project_type ?? 'code';
 		dirParentId = dir.parent_id ?? '';
 		dirDialogOpen = true;
@@ -173,6 +224,7 @@
 		const path = dirPath.trim();
 		if (!name || !path || !dirParentId) return;
 
+		const branchValue = dirBranches.length > 0 ? dirBranches.join(', ') : undefined;
 		if (editingDirId) {
 			await projectsStore.update(editingDirId, {
 				name,
@@ -180,6 +232,7 @@
 				git_user_name: dirGitUserName.trim() || undefined,
 				project_type: dirType,
 				parent_id: dirParentId,
+				branch: branchValue,
 			});
 		} else {
 			await projectsStore.add({
@@ -188,6 +241,7 @@
 				git_user_name: dirGitUserName.trim() || undefined,
 				project_type: dirType,
 				parent_id: dirParentId,
+				branch: branchValue,
 			});
 		}
 		dirDialogOpen = false;
@@ -317,6 +371,9 @@
 									{/if}
 									<div class="flex-1 min-w-0">
 										<div class="text-sm truncate">{dir.name}</div>
+										{#if dir.branch}
+											<div class="text-xs text-muted-foreground truncate">{dir.branch}</div>
+										{/if}
 									</div>
 									<div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
 										<Button
@@ -464,6 +521,50 @@
 						bind:value={dirGitUserName}
 						placeholder={i18n.t('common.optional')}
 					/>
+				</div>
+				<div class="grid gap-2">
+					<div class="flex items-center gap-2">
+						<Label class="flex-1">{i18n.t('project.branch')}</Label>
+						<span class="text-xs text-muted-foreground">{i18n.t('project.branchHint')}</span>
+					</div>
+					<Popover.Root bind:open={branchPopoverOpen}>
+						<Popover.Trigger
+							class={cn(
+								'border-input bg-background flex h-auto min-h-9 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm shadow-xs',
+								'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none'
+							)}
+						>
+							<span class={cn('text-left break-all', dirBranches.length === 0 && 'text-muted-foreground')}>
+								{dirBranches.length > 0 ? dirBranches.join(', ') : i18n.t('project.branchPlaceholder')}
+							</span>
+							<ChevronsUpDown class="h-4 w-4 shrink-0 opacity-50" />
+						</Popover.Trigger>
+						<Popover.Content class="w-[var(--bits-popover-anchor-width)] p-0" align="start">
+							<div class="p-2 border-b">
+								<Input
+									bind:value={branchFilter}
+									placeholder={i18n.t('project.branchSearch')}
+									class="h-8"
+								/>
+							</div>
+							<div class="overflow-y-auto max-h-[min(16rem,var(--bits-popover-content-available-height))] p-1">
+								{#each filteredBranches as branch (branch)}
+									{@const selected = dirBranches.includes(branch)}
+									<button
+										class="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent text-left"
+										onclick={() => toggleBranch(branch)}
+									>
+										<Check class={cn('h-4 w-4 shrink-0', selected ? 'opacity-100' : 'opacity-0')} />
+										<span class="truncate">{branch}</span>
+									</button>
+								{:else}
+									<div class="px-2 py-1.5 text-xs text-muted-foreground">
+										{i18n.t(branchLoadFailed ? 'project.branchLoadFailed' : (availableBranches.length === 0 ? 'project.branchEmpty' : 'project.branchNoMatch'))}
+									</div>
+								{/each}
+							</div>
+						</Popover.Content>
+					</Popover.Root>
 				</div>
 			{/if}
 		</div>

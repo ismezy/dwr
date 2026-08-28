@@ -131,6 +131,7 @@ function createReportsStore() {
 					workDir,
 					locale: i18n.locale,
 					projectType: dir.project_type,
+					branch: dir.branch,
 				});
 				await loadReports(dirId, workDir);
 				selectedDirId = dirId;

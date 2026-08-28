@@ -16,6 +16,9 @@ pub struct Project {
     pub project_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// 代码目录限定的分支，多个分支用逗号分隔；为空表示当前分支
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
 }
 
 fn default_project_type() -> String {
@@ -77,6 +80,7 @@ pub fn init_db(app_handle: &AppHandle) -> Result<DbConnection, String> {
         [],
     );
     let _ = conn.execute("ALTER TABLE projects ADD COLUMN parent_id TEXT", []);
+    let _ = conn.execute("ALTER TABLE projects ADD COLUMN branch TEXT", []);
     // 按数据版本做结构性数据迁移
     migrate_data(&mut conn)?;
     Ok(DbConnection::new(conn))
@@ -145,13 +149,14 @@ pub fn create_project(
     git_user_name: Option<String>,
     project_type: Option<String>,
     parent_id: Option<String>,
+    branch: Option<String>,
 ) -> Result<Project, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let project_type = normalize_project_type(project_type.as_deref());
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT INTO projects (id, name, code, path, git_user_name, project_type, parent_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![&id, &name, &code, &path, &git_user_name, &project_type, &parent_id],
+        "INSERT INTO projects (id, name, code, path, git_user_name, project_type, parent_id, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![&id, &name, &code, &path, &git_user_name, &project_type, &parent_id, &branch],
     )
     .map_err(|e| format!("failed to insert project: {}", e))?;
     Ok(Project {
@@ -162,6 +167,7 @@ pub fn create_project(
         git_user_name,
         project_type,
         parent_id,
+        branch,
     })
 }
 
@@ -169,7 +175,7 @@ pub fn create_project(
 pub fn get_projects(state: tauri::State<'_, DbConnection>) -> Result<Vec<Project>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, name, code, path, git_user_name, project_type, parent_id FROM projects ORDER BY name")
+        .prepare("SELECT id, name, code, path, git_user_name, project_type, parent_id, branch FROM projects ORDER BY name")
         .map_err(|e| format!("failed to prepare statement: {}", e))?;
     let projects = stmt
         .query_map([], |row| {
@@ -181,6 +187,7 @@ pub fn get_projects(state: tauri::State<'_, DbConnection>) -> Result<Vec<Project
                 git_user_name: row.get(4)?,
                 project_type: row.get(5)?,
                 parent_id: row.get(6)?,
+                branch: row.get(7)?,
             })
         })
         .map_err(|e| format!("failed to query projects: {}", e))?
@@ -199,12 +206,13 @@ pub fn update_project(
     git_user_name: Option<String>,
     project_type: Option<String>,
     parent_id: Option<String>,
+    branch: Option<String>,
 ) -> Result<Project, String> {
     let project_type = normalize_project_type(project_type.as_deref());
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute(
-        "UPDATE projects SET name = ?1, code = ?2, path = ?3, git_user_name = ?4, project_type = ?5, parent_id = ?6 WHERE id = ?7",
-        params![&name, &code, &path, &git_user_name, &project_type, &parent_id, &id],
+        "UPDATE projects SET name = ?1, code = ?2, path = ?3, git_user_name = ?4, project_type = ?5, parent_id = ?6, branch = ?7 WHERE id = ?8",
+        params![&name, &code, &path, &git_user_name, &project_type, &parent_id, &branch, &id],
     )
     .map_err(|e| format!("failed to update project: {}", e))?;
     Ok(Project {
@@ -215,6 +223,7 @@ pub fn update_project(
         git_user_name,
         project_type,
         parent_id,
+        branch,
     })
 }
 

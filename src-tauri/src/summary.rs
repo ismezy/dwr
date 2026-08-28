@@ -296,7 +296,7 @@ pub async fn generate_summary_report(
         let git_user = project.git_user_name.as_deref();
         let since = format!("{} 00:00:00", date);
         let until = format!("{} 23:59:59", date);
-        let commits = run_git_log(&project.path, git_user, &since, &until, git_path).unwrap_or_default();
+        let commits = run_git_log(&project.path, git_user, project.branch.as_deref(), &since, &until, git_path).unwrap_or_default();
         total_commits += commits.len();
         projects_commits.push((project.clone(), commits));
     }

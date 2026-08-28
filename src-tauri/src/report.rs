@@ -128,9 +128,56 @@ pub fn check_git_available(git_path: Option<&str>) -> Result<(), String> {
     }
 }
 
+/// 列出仓库的本地分支，供前端多选
+#[tauri::command]
+pub fn list_branches(
+    state: tauri::State<'_, ConfigDb>,
+    project_path: String,
+) -> Result<Vec<String>, String> {
+    let configs = crate::config::get_configs(state)?;
+    let git_path = configs.git_path.as_deref();
+    let mut cmd = resolve_git_cmd(git_path);
+    cmd.arg("-C")
+        .arg(&project_path)
+        .arg("branch")
+        .arg("--format=%(refname:short)");
+    let output = cmd.output().map_err(|e| format!("failed to run git branch: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git branch failed: {}", stderr));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut branches: Vec<String> = Vec::new();
+    for line in stdout.lines() {
+        let name = line.trim();
+        if name.is_empty() || name == "HEAD" || name.ends_with("/HEAD") {
+            continue;
+        }
+        let name = name.to_string();
+        if !branches.contains(&name) {
+            branches.push(name);
+        }
+    }
+    Ok(branches)
+}
+
+/// 解析分支配置：多个分支用逗号、分号或空白分隔；为空表示不过滤（当前分支）
+fn parse_branches(branch: Option<&str>) -> Vec<String> {
+    branch
+        .map(|s| {
+            s.split([',', ';', ' ', '\t', '\n'])
+                .map(|b| b.trim())
+                .filter(|b| !b.is_empty())
+                .map(|b| b.to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn run_git_log(
     project_path: &str,
     git_user_name: Option<&str>,
+    branch: Option<&str>,
     since: &str,
     until: &str,
     git_path: Option<&str>,
@@ -149,6 +196,15 @@ pub fn run_git_log(
         if !user.is_empty() {
             cmd.arg(format!("--author={}", user));
         }
+    }
+
+    // 指定分支时按分支取提交（git 自动去重多个分支共有的提交），用 -- 避免与路径歧义
+    let branches = parse_branches(branch);
+    if !branches.is_empty() {
+        for b in &branches {
+            cmd.arg(b);
+        }
+        cmd.arg("--");
     }
 
     let output = cmd.output().map_err(|e| format!("failed to run git log: {}", e))?;
@@ -635,6 +691,7 @@ pub async fn generate_daily_report(
     work_dir: Option<String>,
     locale: Option<String>,
     project_type: Option<String>,
+    branch: Option<String>,
 ) -> Result<DailyReport, String> {
     let locale = locale.as_deref().unwrap_or("zh");
     let configs = crate::config::get_configs(state)?;
@@ -648,7 +705,7 @@ pub async fn generate_daily_report(
 
     let since = format!("{} 00:00:00", date);
     let until = format!("{} 23:59:59", date);
-    let commits = run_git_log(&project_path, git_user_name.as_deref(), &since, &until, git_path)?;
+    let commits = run_git_log(&project_path, git_user_name.as_deref(), branch.as_deref(), &since, &until, git_path)?;
 
     let week_start_day = configs.week_start_day.unwrap_or(1);
     let recent_reports = collect_this_week_daily_reports(&project_path, &project_name, &date, week_start_day, work_dir.as_deref());

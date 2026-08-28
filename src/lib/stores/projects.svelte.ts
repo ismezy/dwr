@@ -9,6 +9,8 @@ export interface Project {
 	git_user_name?: string;
 	project_type: 'code' | 'docs';
 	parent_id?: string | null;
+	/** 代码目录限定的分支，多个分支用逗号分隔；为空表示当前分支 */
+	branch?: string;
 }
 
 async function loadProjects(): Promise<Project[]> {
@@ -86,6 +88,7 @@ function createProjectsStore() {
 				gitUserName: project.git_user_name,
 				projectType: project.project_type,
 				parentId: project.parent_id,
+				branch: project.branch,
 			});
 			projects = [...projects, created];
 			selectedId = created.id;
@@ -102,6 +105,7 @@ function createProjectsStore() {
 				gitUserName: patch.git_user_name ?? current.git_user_name,
 				projectType: patch.project_type ?? current.project_type,
 				parentId: patch.parent_id !== undefined ? patch.parent_id : current.parent_id,
+				branch: patch.branch !== undefined ? patch.branch : current.branch,
 			});
 			projects = projects.map((p) => (p.id === id ? updated : p));
 			return updated;
