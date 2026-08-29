@@ -34,16 +34,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 项目使用 Yarn Berry（yarn.lock 为 Berry 格式），需通过 Corepack 启用，
-      # 否则 runner 自带的 Yarn 1.x 会误读 lockfile 导致 --frozen-lockfile 失败
-      - name: Enable Corepack
-        run: corepack enable
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: 'yarn'
+
+      # 项目使用 Yarn Berry（yarn.lock 为 Berry 格式），需在 setup-node 之后启用 Corepack，
+      # 让 yarn 4 的 shim 落到当前 Node 目录（PATH 优先级高于 runner 预装的 Yarn 1.x），
+      # 否则 Yarn 1 误读 lockfile 会导致 --frozen-lockfile 失败
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          yarn --version
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
