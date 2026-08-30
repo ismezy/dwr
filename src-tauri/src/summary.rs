@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use tauri::Manager;
@@ -7,6 +8,45 @@ use crate::config::ConfigDb;
 use crate::project::{DbConnection, Project};
 use crate::locale;
 use crate::report::{run_git_log, CommitInfo, is_valid_daily_filename, is_valid_weekly_filename, find_report_file, read_file_with_encoding, get_week_start, parse_date, format_date, next_date, prev_date, check_git_available};
+
+/// 汇总日报的分组结构：第一级为项目，项目下挂多个目录（文件夹）作为子任务
+#[derive(Debug, Clone)]
+pub struct ProjectGroup {
+    pub name: String,
+    pub folders: Vec<(Project, Vec<CommitInfo>)>,
+}
+
+/// 按 parent_id 把目录归到所属项目下；parent_id 缺失或悬空时以目录自身作为一级分组
+fn group_folders_by_project(
+    name_by_id: &HashMap<String, String>,
+    folder_commits: Vec<(Project, Vec<CommitInfo>)>,
+) -> Vec<ProjectGroup> {
+    let mut groups: Vec<ProjectGroup> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for (folder, commits) in folder_commits {
+        let group_name = folder
+            .parent_id
+            .as_deref()
+            .and_then(|pid| name_by_id.get(pid).cloned())
+            .unwrap_or_else(|| folder.name.clone());
+        let idx = match index.get(&group_name) {
+            Some(&i) => i,
+            None => {
+                let i = groups.len();
+                groups.push(ProjectGroup { name: group_name.clone(), folders: Vec::new() });
+                index.insert(group_name, i);
+                i
+            }
+        };
+        groups[idx].folders.push((folder, commits));
+    }
+    groups
+}
+
+/// 项目下只有一个同名目录时不再重复二级标题
+fn needs_folder_heading(group: &ProjectGroup) -> bool {
+    !(group.folders.len() == 1 && group.folders[0].0.name == group.name)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryReport {
@@ -48,7 +88,7 @@ fn weekly_summary_path(week_start: &str, week_end: &str, work_dir: Option<&str>,
     Ok(weekly_summary_dir(work_dir, app_handle)?.join(year).join(format!("{}至{}.md", week_start, week_end)))
 }
 
-fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo>)], recent_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
+fn build_summary_prompt(date: &str, groups: &[ProjectGroup], recent_reports: &[(String, String)], template: Option<&str>, locale: &str) -> String {
     let mut prompt = format!(
         "{}\n\n{}: {}\n\n",
         locale::t(locale, "ai_summary_daily_intro"),
@@ -57,21 +97,27 @@ fn build_summary_prompt(date: &str, projects_commits: &[(Project, Vec<CommitInfo
     );
 
     let mut has_commits = false;
-    for (project, commits) in projects_commits {
-        prompt.push_str(&format!("## {}\n", project.name));
-        if commits.is_empty() {
-            prompt.push_str(locale::t(locale, "ai_summary_no_commits"));
-            prompt.push('\n');
-        } else {
-            has_commits = true;
-            for (i, commit) in commits.iter().enumerate() {
-                prompt.push_str(&format!("{}. {}\n", i + 1, commit.message));
-                if !commit.files_changed.is_empty() {
-                    prompt.push_str(&format!("   {}: {}\n", locale::t(locale, "changed_files"), commit.files_changed.join(", ")));
+    for group in groups {
+        prompt.push_str(&format!("## {}\n", group.name));
+        let folder_heading = needs_folder_heading(group);
+        for (folder, commits) in &group.folders {
+            if folder_heading {
+                prompt.push_str(&format!("### {}\n", folder.name));
+            }
+            if commits.is_empty() {
+                prompt.push_str(locale::t(locale, "ai_summary_no_commits"));
+                prompt.push('\n');
+            } else {
+                has_commits = true;
+                for (i, commit) in commits.iter().enumerate() {
+                    prompt.push_str(&format!("{}. {}\n", i + 1, commit.message));
+                    if !commit.files_changed.is_empty() {
+                        prompt.push_str(&format!("   {}: {}\n", locale::t(locale, "changed_files"), commit.files_changed.join(", ")));
+                    }
                 }
             }
+            prompt.push('\n');
         }
-        prompt.push('\n');
     }
 
     if !recent_reports.is_empty() {
@@ -256,19 +302,24 @@ pub async fn generate_summary_report(
     let configs = crate::config::get_configs(config_state)?;
     let git_path = configs.git_path.as_deref();
 
-    // 获取所有项目目录（过滤掉树型结构中的项目节点，它们没有路径）
-    let projects: Vec<Project> = crate::project::get_projects(project_state)?
+    // 获取全部节点：项目节点（无路径）用于提供一级项目名，目录节点（有路径）是实际采集对象
+    let all_projects = crate::project::get_projects(project_state)?;
+    let name_by_id: HashMap<String, String> = all_projects
+        .iter()
+        .map(|p| (p.id.clone(), p.name.clone()))
+        .collect();
+    let projects: Vec<Project> = all_projects
         .into_iter()
         .filter(|p| !p.path.is_empty())
         .collect();
 
-    // 仅当存在 code 类型项目时才要求 Git 可用
+    // 仅当存在 code 类型目录时才要求 Git 可用
     if projects.iter().any(|p| p.project_type != "docs") {
         check_git_available(git_path)?;
     }
 
-    // 收集每个项目的提交（docs 项目收集文档变更）
-    let mut projects_commits: Vec<(Project, Vec<CommitInfo>)> = Vec::new();
+    // 收集每个目录的提交（docs 目录收集文档变更）
+    let mut folder_commits: Vec<(Project, Vec<CommitInfo>)> = Vec::new();
     let mut total_commits = 0;
     for project in &projects {
         if project.project_type == "docs" {
@@ -290,7 +341,7 @@ pub async fn generate_summary_report(
                 })
                 .collect();
             total_commits += commits.len();
-            projects_commits.push((project.clone(), commits));
+            folder_commits.push((project.clone(), commits));
             continue;
         }
         let git_user = project.git_user_name.as_deref();
@@ -298,8 +349,11 @@ pub async fn generate_summary_report(
         let until = format!("{} 23:59:59", date);
         let commits = run_git_log(&project.path, git_user, project.branch.as_deref(), &since, &until, git_path).unwrap_or_default();
         total_commits += commits.len();
-        projects_commits.push((project.clone(), commits));
+        folder_commits.push((project.clone(), commits));
     }
+
+    // 目录按所属项目分组：一级为项目名，目录作为项目下的子任务
+    let groups = group_folders_by_project(&name_by_id, folder_commits);
 
     let week_start_day = configs.week_start_day.unwrap_or(1);
     let recent_reports = collect_this_week_summary_reports(app_handle.clone(), &date, week_start_day, work_dir.as_deref());
@@ -308,14 +362,14 @@ pub async fn generate_summary_report(
         (configs.ai_provider.as_deref(), configs.ai_api_key.as_deref(), configs.ai_model.as_deref())
     {
         if total_commits == 0 {
-            format_summary_report(&date, &projects_commits, locale)
+            format_summary_report(&date, &groups, locale)
         } else {
-            let prompt = build_summary_prompt(&date, &projects_commits, &recent_reports, configs.ai_template.as_deref(), locale);
+            let prompt = build_summary_prompt(&date, &groups, &recent_reports, configs.ai_template.as_deref(), locale);
             let client = ai::create_client(provider, api_key, configs.ai_base_url.as_deref(), model)?;
             client.generate(&prompt)?
         }
     } else {
-        format_summary_report(&date, &projects_commits, locale)
+        format_summary_report(&date, &groups, locale)
     };
 
     let path = summary_path(&date, work_dir.as_deref(), app_handle.clone())?;
@@ -327,16 +381,28 @@ pub async fn generate_summary_report(
     Ok(SummaryReport { date, content })
 }
 
-fn format_summary_report(_date: &str, projects_commits: &[(Project, Vec<CommitInfo>)], locale: &str) -> String {
+fn format_summary_report(_date: &str, groups: &[ProjectGroup], locale: &str) -> String {
     let mut lines = Vec::new();
     lines.push(format!("# {}", locale::t(locale, "summary_daily_title")));
     lines.push(String::new());
 
     let mut has_any = false;
-    for (project, commits) in projects_commits {
-        if !commits.is_empty() {
-            has_any = true;
-            lines.push(format!("## {}", project.name));
+    for group in groups {
+        let folders_with_commits: Vec<&(Project, Vec<CommitInfo>)> = group
+            .folders
+            .iter()
+            .filter(|(_, commits)| !commits.is_empty())
+            .collect();
+        if folders_with_commits.is_empty() {
+            continue;
+        }
+        has_any = true;
+        lines.push(format!("## {}", group.name));
+        let folder_heading = needs_folder_heading(group);
+        for (folder, commits) in folders_with_commits {
+            if folder_heading {
+                lines.push(format!("### {}", folder.name));
+            }
             for (i, commit) in commits.iter().enumerate() {
                 lines.push(format!("{}. {}", i + 1, commit.message));
                 if !commit.files_changed.is_empty() {
@@ -596,5 +662,75 @@ pub fn save_weekly_summary_report(
         std::fs::write(&path, content).map_err(|e| format!("failed to save weekly summary report: {}", e))
     } else {
         Err("report not found".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(id: &str, name: &str, parent_id: Option<&str>) -> Project {
+        Project {
+            id: id.to_string(),
+            name: name.to_string(),
+            code: None,
+            path: format!("/repos/{}", id),
+            git_user_name: None,
+            project_type: "code".to_string(),
+            parent_id: parent_id.map(|s| s.to_string()),
+            branch: None,
+        }
+    }
+
+    fn commit(message: &str) -> CommitInfo {
+        CommitInfo {
+            hash: "abc".to_string(),
+            message: message.to_string(),
+            date: "2026-08-29".to_string(),
+            files_changed: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn groups_folders_under_project_names() {
+        let name_by_id: HashMap<String, String> = [("p1".to_string(), "ProjectA".to_string())]
+            .into_iter()
+            .collect();
+        let folder_commits = vec![
+            (folder("d1", "frontend", Some("p1")), vec![commit("feat: ui")]),
+            (folder("d2", "backend", Some("p1")), vec![commit("fix: api")]),
+            (folder("d3", "orphan", Some("missing")), vec![commit("chore")]),
+        ];
+
+        let groups = group_folders_by_project(&name_by_id, folder_commits);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].name, "ProjectA");
+        assert_eq!(groups[0].folders.len(), 2);
+        // parent_id 悬空时以目录自身作为一级分组
+        assert_eq!(groups[1].name, "orphan");
+
+        let report = format_summary_report("2026-08-29", &groups, "zh");
+        assert!(report.contains("## ProjectA"));
+        assert!(report.contains("### frontend"));
+        assert!(report.contains("### backend"));
+        assert!(report.contains("## orphan"));
+        // 单目录同名分组不重复二级标题
+        assert!(!report.contains("### orphan"));
+    }
+
+    #[test]
+    fn skips_folder_heading_for_single_same_name_folder() {
+        let name_by_id: HashMap<String, String> = [("p1".to_string(), "Alpha".to_string())]
+            .into_iter()
+            .collect();
+        let folder_commits = vec![(folder("d1", "Alpha", Some("p1")), vec![commit("feat")])];
+
+        let groups = group_folders_by_project(&name_by_id, folder_commits);
+        let report = format_summary_report("2026-08-29", &groups, "zh");
+
+        assert!(report.contains("## Alpha"));
+        assert!(!report.contains("### Alpha"));
+        assert!(report.contains("1. feat"));
     }
 }
